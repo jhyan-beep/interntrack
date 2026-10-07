@@ -76,6 +76,39 @@ def test_update_application_status(client: TestClient) -> None:
     assert response.json()["status"] == "interview"
 
 
+def test_update_rejects_deadline_before_existing_application_date(client: TestClient) -> None:
+    created = make_application(
+        client,
+        application_date="2026-09-24",
+        deadline="2026-10-15",
+    )
+
+    response = client.patch(f"/applications/{created['id']}", json={"deadline": "2026-09-01"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "deadline cannot be before application_date"
+    current = client.get(f"/applications/{created['id']}").json()
+    assert current["deadline"] == "2026-10-15"
+
+
+def test_update_rejects_application_date_after_existing_deadline(client: TestClient) -> None:
+    created = make_application(
+        client,
+        application_date="2026-09-24",
+        deadline="2026-10-15",
+    )
+
+    response = client.patch(
+        f"/applications/{created['id']}",
+        json={"application_date": "2026-10-20"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "deadline cannot be before application_date"
+    current = client.get(f"/applications/{created['id']}").json()
+    assert current["application_date"] == "2026-09-24"
+
+
 def test_stats_returns_counts_and_upcoming_deadlines(client: TestClient) -> None:
     make_application(client, company="OpenAI", status="applied", deadline="2026-10-15")
     make_application(client, company="Google", status="interview", deadline="2026-10-01")

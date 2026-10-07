@@ -148,7 +148,13 @@ def update_application(
     application = crud.get_application(db, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    return crud.update_application(db, application, application_in)
+    try:
+        return crud.update_application(db, application, application_in)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
 
 @app.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)

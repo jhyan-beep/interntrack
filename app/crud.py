@@ -15,7 +15,13 @@ SORT_COLUMNS = {
 }
 
 
+def _validate_application_dates(application_date: date, deadline: date | None) -> None:
+    if deadline is not None and deadline < application_date:
+        raise ValueError("deadline cannot be before application_date")
+
+
 def create_application(db: Session, application_in: ApplicationCreate) -> InternshipApplication:
+    _validate_application_dates(application_in.application_date, application_in.deadline)
     application = InternshipApplication(**application_in.model_dump())
     db.add(application)
     db.commit()
@@ -55,6 +61,10 @@ def update_application(
     application_in: ApplicationUpdate,
 ) -> InternshipApplication:
     update_data = application_in.model_dump(exclude_unset=True)
+    application_date = update_data.get("application_date", application.application_date)
+    deadline = update_data.get("deadline", application.deadline)
+    _validate_application_dates(application_date, deadline)
+
     for field, value in update_data.items():
         setattr(application, field, value)
 
