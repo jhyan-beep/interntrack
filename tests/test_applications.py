@@ -1,13 +1,18 @@
 from fastapi.testclient import TestClient
 
 
+DEFAULT_DEADLINE = "2099-10-15"
+EARLIER_DEADLINE = "2099-10-01"
+LATER_DEADLINE = "2099-11-20"
+
+
 def make_application(
     client: TestClient,
     company: str = "OpenAI",
     role: str = "Software Engineer Intern",
     status: str = "applied",
     application_date: str = "2026-09-24",
-    deadline: str | None = "2026-10-15",
+    deadline: str | None = DEFAULT_DEADLINE,
 ) -> dict:
     payload = {
         "company": company,
@@ -57,8 +62,8 @@ def test_list_applications_filters_by_status_and_company(client: TestClient) -> 
 
 
 def test_list_applications_sorts_by_deadline(client: TestClient) -> None:
-    make_application(client, company="Later Co", deadline="2026-11-20")
-    make_application(client, company="Soon Co", deadline="2026-10-01")
+    make_application(client, company="Later Co", deadline=LATER_DEADLINE)
+    make_application(client, company="Soon Co", deadline=EARLIER_DEADLINE)
 
     response = client.get("/applications?sort_by=deadline&sort_order=asc")
 
@@ -110,8 +115,8 @@ def test_update_rejects_application_date_after_existing_deadline(client: TestCli
 
 
 def test_stats_returns_counts_and_upcoming_deadlines(client: TestClient) -> None:
-    make_application(client, company="OpenAI", status="applied", deadline="2026-10-15")
-    make_application(client, company="Google", status="interview", deadline="2026-10-01")
+    make_application(client, company="OpenAI", status="applied", deadline=DEFAULT_DEADLINE)
+    make_application(client, company="Google", status="interview", deadline=EARLIER_DEADLINE)
     make_application(client, company="Meta", status="rejected", deadline=None)
 
     response = client.get("/stats")
