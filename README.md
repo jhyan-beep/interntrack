@@ -1,17 +1,19 @@
 # InternTrack
 
-InternTrack is a FastAPI backend for tracking software engineering internship applications. It is designed as a clear, interview-friendly project: small enough to explain end to end, but complete enough to show real backend habits like request validation, database modeling, testing, Docker, and CI.
+InternTrack is a FastAPI internship application tracker with a built-in web dashboard. It is designed as a clear, interview-friendly project that still feels like a real product: API workflows, request validation, database modeling, testing, Docker, CI, and a usable browser UI.
 
 ## Features
 
+- Browser dashboard served by FastAPI
 - Create, read, update, and delete internship applications
 - Filter applications by status and company
 - Sort applications by deadline, application date, created date, or company
 - View application statistics grouped by status
+- Track upcoming deadlines and active applications
 - Export applications as CSV
 - PostgreSQL support with SQLAlchemy
 - Pydantic schemas for request and response validation
-- Pytest coverage for the main API workflows
+- Pytest coverage for the main API and UI entrypoint
 - Docker Compose setup for API plus PostgreSQL
 - GitHub Actions CI
 
@@ -23,6 +25,7 @@ InternTrack is a FastAPI backend for tracking software engineering internship ap
 - Pydantic
 - Pytest
 - Docker
+- HTML, CSS, and vanilla JavaScript
 
 ## Project Structure
 
@@ -30,18 +33,37 @@ InternTrack is a FastAPI backend for tracking software engineering internship ap
 app/
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
-  main.py        FastAPI routes
+  main.py        FastAPI routes and web UI entrypoint
   models.py      SQLAlchemy models
   schemas.py     Pydantic request and response schemas
+  static/        Browser dashboard assets
 tests/
   conftest.py
   test_applications.py
 ```
 
+## Web UI
+
+Start the app and open:
+
+```text
+http://localhost:8000/
+```
+
+The dashboard supports:
+
+- Pipeline metrics
+- Status distribution
+- Upcoming deadline list
+- Filtering and sorting
+- Create/edit/delete application workflows
+- CSV export link
+
 ## API Overview
 
 | Method | Path | Description |
 | --- | --- | --- |
+| GET | `/` | Web dashboard |
 | GET | `/health` | Health check |
 | POST | `/applications` | Create an application |
 | GET | `/applications` | List applications with filters and sorting |
@@ -71,9 +93,10 @@ cp .env.example .env
 docker compose up --build
 ```
 
-3. Open the interactive API docs:
+3. Open the dashboard or interactive API docs:
 
 ```text
+http://localhost:8000/
 http://localhost:8000/docs
 ```
 
@@ -127,4 +150,4 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a FastAPI and PostgreSQL internship application tracker with CRUD endpoints, filtering, sorting, statistics, CSV export, Dockerized local development, GitHub Actions CI, and pytest coverage.
+Built InternTrack, a FastAPI and PostgreSQL internship application tracker with a browser dashboard, CRUD workflows, filtering, sorting, statistics, CSV export, Dockerized local development, GitHub Actions CI, and pytest coverage.

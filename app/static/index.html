@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InternTrack</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Workspace">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">IT</span>
+          <div>
+            <strong>InternTrack</strong>
+            <span>Applications</span>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="Primary">
+          <a class="nav-item active" href="/">Dashboard</a>
+          <a class="nav-item" href="/docs">API Docs</a>
+          <a class="nav-item" href="/applications/export.csv">Export CSV</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Pipeline</p>
+            <h1>Internship applications</h1>
+          </div>
+          <div class="actions">
+            <button class="secondary-button" id="refreshButton" type="button">Refresh</button>
+            <button class="primary-button" id="newApplicationButton" type="button">New application</button>
+          </div>
+        </header>
+
+        <section class="metric-grid" aria-label="Application metrics">
+          <article class="metric">
+            <span>Total</span>
+            <strong id="totalApplications">0</strong>
+          </article>
+          <article class="metric">
+            <span>Active</span>
+            <strong id="activeApplications">0</strong>
+          </article>
+          <article class="metric">
+            <span>Upcoming deadlines</span>
+            <strong id="upcomingDeadlines">0</strong>
+          </article>
+          <article class="metric">
+            <span>Offers</span>
+            <strong id="offerCount">0</strong>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel table-panel" aria-labelledby="applicationsHeading">
+            <div class="panel-header">
+              <div>
+                <h2 id="applicationsHeading">Applications</h2>
+                <p id="resultSummary">Loading applications</p>
+              </div>
+              <div class="filters">
+                <label>
+                  <span>Status</span>
+                  <select id="statusFilter">
+                    <option value="">All</option>
+                    <option value="saved">Saved</option>
+                    <option value="applied">Applied</option>
+                    <option value="interview">Interview</option>
+                    <option value="offer">Offer</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="withdrawn">Withdrawn</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Company</span>
+                  <input id="companyFilter" type="search" placeholder="Search" />
+                </label>
+                <label>
+                  <span>Sort</span>
+                  <select id="sortBy">
+                    <option value="created_at">Created</option>
+                    <option value="deadline">Deadline</option>
+                    <option value="application_date">Applied date</option>
+                    <option value="company">Company</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Order</span>
+                  <select id="sortOrder">
+                    <option value="desc">Desc</option>
+                    <option value="asc">Asc</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Applied</th>
+                    <th>Deadline</th>
+                    <th>Location</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="applicationsTable"></tbody>
+              </table>
+            </div>
+            <div class="empty-state hidden" id="emptyState">No applications match this view.</div>
+          </section>
+
+          <aside class="panel side-panel" aria-labelledby="statusHeading">
+            <h2 id="statusHeading">Status mix</h2>
+            <div class="status-list" id="statusList"></div>
+            <h2>Next deadlines</h2>
+            <div class="deadline-list" id="deadlineList"></div>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="applicationDialog">
+      <form class="dialog-form" id="applicationForm" method="dialog">
+        <header>
+          <div>
+            <p class="eyebrow">Application</p>
+            <h2 id="dialogTitle">New application</h2>
+          </div>
+          <button class="icon-button" id="closeDialogButton" type="button" aria-label="Close">x</button>
+        </header>
+        <input id="applicationId" type="hidden" />
+        <div class="form-grid">
+          <label>
+            <span>Company</span>
+            <input id="company" name="company" required maxlength="120" />
+          </label>
+          <label>
+            <span>Role</span>
+            <input id="role" name="role" required maxlength="120" />
+          </label>
+          <label>
+            <span>Status</span>
+            <select id="status" name="status">
+              <option value="saved">Saved</option>
+              <option value="applied">Applied</option>
+              <option value="interview">Interview</option>
+              <option value="offer">Offer</option>
+              <option value="rejected">Rejected</option>
+              <option value="withdrawn">Withdrawn</option>
+            </select>
+          </label>
+          <label>
+            <span>Application date</span>
+            <input id="applicationDate" name="application_date" required type="date" />
+          </label>
+          <label>
+            <span>Deadline</span>
+            <input id="deadline" name="deadline" type="date" />
+          </label>
+          <label>
+            <span>Location</span>
+            <input id="location" name="location" maxlength="120" />
+          </label>
+          <label class="wide-field">
+            <span>Source URL</span>
+            <input id="sourceUrl" name="source_url" maxlength="500" type="url" />
+          </label>
+          <label class="wide-field">
+            <span>Notes</span>
+            <textarea id="notes" name="notes" rows="4"></textarea>
+          </label>
+        </div>
+        <p class="form-error hidden" id="formError"></p>
+        <footer>
+          <button class="secondary-button" id="deleteButton" type="button">Delete</button>
+          <span></span>
+          <button class="secondary-button" id="cancelButton" type="button">Cancel</button>
+          <button class="primary-button" type="submit">Save</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

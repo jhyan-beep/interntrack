@@ -1,10 +1,12 @@
 import csv
 from contextlib import asynccontextmanager
 from io import StringIO
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -18,6 +20,7 @@ from app.schemas import (
 )
 
 settings = get_settings()
+static_dir = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -32,6 +35,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(static_dir / "index.html")
 
 
 @app.get("/health")

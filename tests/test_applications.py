@@ -29,6 +29,14 @@ def make_application(
     return response.json()
 
 
+def test_dashboard_serves_web_ui(client: TestClient) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "InternTrack" in response.text
+    assert "/static/app.js" in response.text
+
+
 def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
 
