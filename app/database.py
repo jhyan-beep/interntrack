@@ -24,6 +24,14 @@ class Base(DeclarativeBase):
     pass
 
 
+def _normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
+
+
 def _connect_args(database_url: str) -> dict:
     if database_url.startswith("sqlite"):
         return {"check_same_thread": False}
@@ -38,10 +46,11 @@ def _engine_options(database_url: str) -> dict:
 
 
 settings = get_settings()
+database_url = _normalize_database_url(settings.database_url)
 engine = create_engine(
-    settings.database_url,
+    database_url,
     pool_pre_ping=True,
-    **_engine_options(settings.database_url),
+    **_engine_options(database_url),
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

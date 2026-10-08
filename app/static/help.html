@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>InternTrack Tutorial</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="guide-shell">
+      <header class="guide-header">
+        <div>
+          <p class="eyebrow">Tutorial</p>
+          <h1>Start tracking applications in five minutes</h1>
+        </div>
+        <a class="primary-link" href="/">Open dashboard</a>
+      </header>
+
+      <main class="guide-content">
+        <section class="guide-panel">
+          <h2>1. Open InternTrack</h2>
+          <p>After the app is running, use the dashboard link:</p>
+          <pre><code>http://localhost:8000/</code></pre>
+          <p>If InternTrack is deployed online, use the public URL from your hosting provider instead.</p>
+        </section>
+
+        <section class="guide-panel">
+          <h2>2. Add your first application</h2>
+          <ol>
+            <li>Select <strong>New application</strong>.</li>
+            <li>Enter the company, role, status, application date, and optional deadline.</li>
+            <li>Add the job link in <strong>Source URL</strong> so you can find it later.</li>
+            <li>Select <strong>Save</strong>.</li>
+          </ol>
+        </section>
+
+        <section class="guide-panel">
+          <h2>3. Keep the pipeline current</h2>
+          <p>Use statuses consistently:</p>
+          <ul>
+            <li><strong>Saved</strong>: interesting job you have not applied to yet.</li>
+            <li><strong>Applied</strong>: application submitted.</li>
+            <li><strong>Interview</strong>: active interview process.</li>
+            <li><strong>Offer</strong>: offer received.</li>
+            <li><strong>Rejected</strong> or <strong>Withdrawn</strong>: no longer active.</li>
+          </ul>
+        </section>
+
+        <section class="guide-panel">
+          <h2>4. Filter, sort, and export</h2>
+          <p>Use the status filter, company search, and sort controls to focus the table. Select <strong>Export CSV</strong> to download your applications for spreadsheets or backups.</p>
+        </section>
+
+        <section class="guide-panel">
+          <h2>Deploy for everyday use</h2>
+          <p>After this PR is merged into GitHub, use the Render deployment link in the README. Render will ask you to connect GitHub and create the web service plus PostgreSQL database from the included blueprint.</p>
+          <a class="primary-link" href="https://render.com/deploy?repo=https://github.com/jhyan-beep/interntrack" rel="noreferrer" target="_blank">Deploy on Render</a>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

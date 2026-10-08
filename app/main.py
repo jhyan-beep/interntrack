@@ -1,10 +1,12 @@
 import csv
 from contextlib import asynccontextmanager
 from io import StringIO
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -18,6 +20,7 @@ from app.schemas import (
 )
 
 settings = get_settings()
+static_dir = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -32,6 +35,17 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def dashboard() -> FileResponse:
+    return FileResponse(static_dir / "index.html")
+
+
+@app.get("/help", include_in_schema=False)
+def help_page() -> FileResponse:
+    return FileResponse(static_dir / "help.html")
 
 
 @app.get("/health")
@@ -148,7 +162,13 @@ def update_application(
     application = crud.get_application(db, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    return crud.update_application(db, application, application_in)
+    try:
+        return crud.update_application(db, application, application_in)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
 
 @app.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
