@@ -43,6 +43,11 @@ def dashboard() -> FileResponse:
     return FileResponse(static_dir / "index.html")
 
 
+@app.get("/help", include_in_schema=False)
+def help_page() -> FileResponse:
+    return FileResponse(static_dir / "help.html")
+
+
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}

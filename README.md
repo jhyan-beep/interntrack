@@ -50,6 +50,12 @@ Start the app and open:
 http://localhost:8000/
 ```
 
+Open the guided tutorial:
+
+```text
+http://localhost:8000/help
+```
+
 The dashboard supports:
 
 - Pipeline metrics
@@ -59,11 +65,59 @@ The dashboard supports:
 - Create/edit/delete application workflows
 - CSV export link
 
+## Use InternTrack Without Coding
+
+The easiest path for a non-developer is to deploy it online, then use the hosted URL in a browser.
+
+### Option 1: One-click Render deploy
+
+After this repository is updated on `main`, use this link:
+
+[Deploy InternTrack on Render](https://render.com/deploy?repo=https://github.com/jhyan-beep/interntrack)
+
+Render will ask you to sign in with GitHub and create:
+
+- One web service for InternTrack
+- One PostgreSQL database
+- A public URL you can open from any browser
+
+When deployment finishes, open the Render-provided URL and start from the tutorial page:
+
+```text
+https://your-render-url.onrender.com/help
+```
+
+### Option 2: Run on your computer with Docker
+
+Install Docker Desktop, then run:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open:
+
+```text
+http://localhost:8000/help
+```
+
+## Quick Tutorial
+
+1. Open the dashboard.
+2. Select **New application**.
+3. Fill in company, role, status, application date, and optional deadline.
+4. Add the job posting link in **Source URL**.
+5. Use filters and sorting to focus your pipeline.
+6. Update statuses as applications move from saved to applied, interview, offer, rejected, or withdrawn.
+7. Select **Export CSV** when you want a spreadsheet backup.
+
 ## API Overview
 
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/` | Web dashboard |
+| GET | `/help` | User tutorial |
 | GET | `/health` | Health check |
 | POST | `/applications` | Create an application |
 | GET | `/applications` | List applications with filters and sorting |

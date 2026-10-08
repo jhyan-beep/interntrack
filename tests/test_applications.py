@@ -37,6 +37,14 @@ def test_dashboard_serves_web_ui(client: TestClient) -> None:
     assert "/static/app.js" in response.text
 
 
+def test_help_page_serves_user_tutorial(client: TestClient) -> None:
+    response = client.get("/help")
+
+    assert response.status_code == 200
+    assert "Start tracking applications" in response.text
+    assert "Deploy on Render" in response.text
+
+
 def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
 

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: interntrack
+    runtime: docker
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: interntrack-db
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production
+
+databases:
+  - name: interntrack-db
+    plan: free
