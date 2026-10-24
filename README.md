@@ -12,6 +12,10 @@ InternTrack is a responsive web application for tracking software engineering in
 - Responsive dashboard for desktop and mobile
 - Create and edit applications from an accessible form
 - Visual pipeline and upcoming deadline overview
+- Email and password accounts with HttpOnly cookie sessions
+- Per-user data isolation across every application endpoint
+- Paginated application lists
+- Alembic database migrations
 - PostgreSQL support with SQLAlchemy
 - Pydantic schemas for request and response validation
 - Pytest coverage for the main API workflows
@@ -29,11 +33,14 @@ InternTrack is a responsive web application for tracking software engineering in
 - React
 - TypeScript
 - Vite
+- Alembic
+- PyJWT and Argon2 password hashing
 
 ## Project Structure
 
 ```text
 app/
+  auth.py        Password hashing, sessions, and current-user dependency
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
   main.py        FastAPI routes
@@ -54,6 +61,11 @@ tests/
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/health` | Health check |
+| POST | `/auth/register` | Create an account and session |
+| POST | `/auth/login` | Sign in |
+| POST | `/auth/logout` | Sign out |
+| GET | `/auth/me` | View the current account |
+| DELETE | `/auth/me` | Delete the current account and its data |
 | POST | `/applications` | Create an application |
 | GET | `/applications` | List applications with filters and sorting |
 | GET | `/applications/{application_id}` | Get one application |
@@ -98,6 +110,7 @@ Create a virtual environment, install dependencies, and point `DATABASE_URL` at 
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
@@ -125,6 +138,19 @@ cd frontend && pnpm build
 ```
 
 If `DATABASE_URL` is not set, the tests use an in-memory SQLite database. In CI, tests run against PostgreSQL.
+
+## Authentication and data privacy
+
+Passwords are hashed with Argon2 and never returned by the API. A signed, expiring JWT is stored in an HttpOnly cookie, and every application query is scoped to the authenticated user. Set a unique `SECRET_KEY` of at least 32 characters before running with `ENVIRONMENT=production`.
+
+If you used an earlier development version that created tables automatically, reset the local Docker volume before the first migration-based startup:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+This reset instruction is only for pre-release development data. Production databases should always be migrated and backed up rather than deleted.
 
 ## Data Model
 
@@ -155,6 +181,5 @@ Built InternTrack, a responsive React, TypeScript, FastAPI, and PostgreSQL appli
 
 ## Product Roadmap
 
-The current release is a single-user web application. Before accepting real user data, the next milestone is authentication and per-user data isolation. Planned production work also includes Alembic migrations, pagination, monitoring, automated backups, account deletion, and privacy documentation.
-
+The current release supports authenticated, user-owned workspaces. Remaining production work includes email verification and password reset, rate limiting, monitoring, automated backups, formal privacy documentation, and deployment hardening.
 

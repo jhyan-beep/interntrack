@@ -1,5 +1,5 @@
 import csv
-from contextlib import asynccontextmanager
+import math
 from io import StringIO
 from pathlib import Path
 from typing import Annotated, Literal
@@ -8,32 +8,40 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud
-from app.database import create_tables, get_db, get_settings
-from app.models import ApplicationStatus, InternshipApplication
+from app.auth import (
+    CurrentUser,
+    clear_session_cookie,
+    get_user_by_email,
+    hash_password,
+    normalize_email,
+    set_session_cookie,
+    verify_password,
+)
+from app.database import get_db, get_settings
+from app.models import ApplicationStatus, InternshipApplication, User
 from app.schemas import (
     ApplicationCreate,
     ApplicationRead,
     ApplicationStats,
     ApplicationUpdate,
+    DeleteAccountRequest,
+    PaginatedApplications,
+    UserCreate,
+    UserLogin,
+    UserRead,
 )
 
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    create_tables()
-    yield
-
-
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="1.0.0",
-    lifespan=lifespan,
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -50,6 +58,77 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+def register(
+    user_in: UserCreate,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    if get_user_by_email(db, user_in.email) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+    user = User(
+        email=normalize_email(user_in.email),
+        password_hash=hash_password(user_in.password),
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
+    db.refresh(user)
+    set_session_cookie(response, user.id)
+    return user
+
+
+@app.post("/auth/login", response_model=UserRead)
+def login(
+    credentials: UserLogin,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    user = get_user_by_email(db, credentials.email)
+    if user is None or not verify_password(credentials.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+    set_session_cookie(response, user.id)
+    return user
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response) -> Response:
+    clear_session_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@app.get("/auth/me", response_model=UserRead)
+def get_me(user: CurrentUser) -> User:
+    return user
+
+
+@app.delete("/auth/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    confirmation: DeleteAccountRequest,
+    user: CurrentUser,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    if not verify_password(confirmation.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+    db.delete(user)
+    db.commit()
+    clear_session_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
 @app.post(
     "/applications",
     response_model=ApplicationRead,
@@ -57,13 +136,15 @@ def health_check() -> dict[str, str]:
 )
 def create_application(
     application_in: ApplicationCreate,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> InternshipApplication:
-    return crud.create_application(db, application_in)
+    return crud.create_application(db, application_in, user.id)
 
 
-@app.get("/applications", response_model=list[ApplicationRead])
+@app.get("/applications", response_model=PaginatedApplications)
 def list_applications(
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     status_filter: Annotated[
         ApplicationStatus | None,
@@ -81,21 +162,40 @@ def list_applications(
         Literal["asc", "desc"],
         Query(description="Sort direction."),
     ] = "desc",
-) -> list[InternshipApplication]:
-    return crud.list_applications(
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> dict:
+    applications, total = crud.list_applications(
         db,
+        user_id=user.id,
         status=status_filter,
         company=company,
         sort_by=sort_by,
         sort_order=sort_order,
+        page=page,
+        page_size=page_size,
     )
+    return {
+        "items": applications,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": math.ceil(total / page_size) if total else 0,
+    }
 
 
 @app.get("/applications/export.csv")
 def export_applications_csv(
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> StreamingResponse:
-    applications = crud.list_applications(db, sort_by="application_date", sort_order="desc")
+    applications, _ = crud.list_applications(
+        db,
+        user_id=user.id,
+        sort_by="application_date",
+        sort_order="desc",
+        page_size=100_000,
+    )
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow(
@@ -142,9 +242,10 @@ def export_applications_csv(
 @app.get("/applications/{application_id}", response_model=ApplicationRead)
 def get_application(
     application_id: int,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> InternshipApplication:
-    application = crud.get_application(db, application_id)
+    application = crud.get_application(db, application_id, user.id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
     return application
@@ -154,9 +255,10 @@ def get_application(
 def update_application(
     application_id: int,
     application_in: ApplicationUpdate,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> InternshipApplication:
-    application = crud.get_application(db, application_id)
+    application = crud.get_application(db, application_id, user.id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
 
@@ -178,9 +280,10 @@ def update_application(
 @app.delete("/applications/{application_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_application(
     application_id: int,
+    user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
-    application = crud.get_application(db, application_id)
+    application = crud.get_application(db, application_id, user.id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
     crud.delete_application(db, application)
@@ -188,12 +291,14 @@ def delete_application(
 
 
 @app.get("/stats", response_model=ApplicationStats)
-def get_stats(db: Annotated[Session, Depends(get_db)]) -> dict:
-    return crud.get_application_stats(db)
+def get_stats(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    return crud.get_application_stats(db, user.id)
 
 
 frontend_directory = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if settings.environment != "test" and frontend_directory.exists():
     app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")
-
 

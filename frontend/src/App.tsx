@@ -2,12 +2,16 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef
 import {
   ApiError,
   createApplication,
+  deleteAccount,
   deleteApplication,
   downloadCsv,
   getApplications,
+  getCurrentUser,
   getStats,
+  logout,
   updateApplication
 } from "./api";
+import AuthScreen from "./AuthScreen";
 import {
   STATUSES,
   type ApplicationInput,
@@ -15,7 +19,8 @@ import {
   type ApplicationStatus,
   type InternshipApplication,
   type SortBy,
-  type SortOrder
+  type SortOrder,
+  type User
 } from "./types";
 
 const STATUS_LABELS: Record<ApplicationStatus, string> = {
@@ -177,7 +182,53 @@ function ApplicationModal({
   );
 }
 
+function AccountDialog({
+  user,
+  onClose,
+  onSignedOut,
+  onDeleted
+}: {
+  user: User;
+  onClose: () => void;
+  onSignedOut: () => Promise<void>;
+  onDeleted: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleDelete(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await deleteAccount(password);
+      onDeleted();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete this account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">Your account</p><h2 id="account-title">Account settings</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
+        </div>
+        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>Your application data is private to this account.</small></div></div>
+        {!confirmingDelete ? <div className="account-actions"><button className="button secondary" onClick={() => void onSignedOut()}>Sign out</button><button className="danger-link" onClick={() => setConfirmingDelete(true)}>Delete account</button></div> : <form className="delete-account-form" onSubmit={handleDelete}><h3>Delete your account?</h3><p>This permanently removes your account and every application. Enter your password to confirm.</p><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setConfirmingDelete(false); setPassword(""); setError(""); }}>Keep account</button><button type="submit" className="button destructive" disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</button></div></form>}
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [applications, setApplications] = useState<InternshipApplication[]>([]);
   const [stats, setStats] = useState<ApplicationStats>(EMPTY_STATS);
   const [search, setSearch] = useState("");
@@ -190,40 +241,63 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<InternshipApplication | null>(null);
   const [toast, setToast] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, pages: 0 });
+
+  useEffect(() => {
+    void getCurrentUser()
+      .then(setUser)
+      .catch((caught) => {
+        if (!(caught instanceof ApiError && caught.status === 401)) {
+          setError("Could not check your session. Please refresh the page.");
+        }
+      })
+      .finally(() => setAuthLoading(false));
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+
   const loadApplications = useCallback(async () => {
+    if (!user) return;
     try {
       setError("");
-      setApplications(await getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder }));
+      const result = await getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page });
+      setApplications(result.items);
+      setPagination({ total: result.total, pages: result.pages });
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) setUser(null);
       setError(caught instanceof Error ? caught.message : "Could not load applications.");
     }
-  }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user]);
 
   const loadDashboard = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const [nextApplications, nextStats] = await Promise.all([
-        getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder }),
+        getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page }),
         getStats()
       ]);
-      setApplications(nextApplications);
+      setApplications(nextApplications.items);
+      setPagination({ total: nextApplications.total, pages: nextApplications.pages });
       setStats(nextStats);
       setError("");
     } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) setUser(null);
       setError(caught instanceof Error ? caught.message : "Could not load your dashboard.");
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user]);
 
-  useEffect(() => { void loadApplications(); }, [loadApplications]);
-  useEffect(() => { void loadDashboard(); /* initial load only */ }, []);
+  useEffect(() => { if (user) void loadApplications(); }, [loadApplications, user]);
+  useEffect(() => { if (user) void loadDashboard(); }, [user]);
 
   useEffect(() => {
     if (!toast) return;
@@ -254,6 +328,21 @@ export default function App() {
     }
   }
 
+  async function handleSignedOut() {
+    await logout();
+    setAccountOpen(false);
+    setUser(null);
+    setApplications([]);
+    setStats(EMPTY_STATS);
+  }
+
+  function handleAccountDeleted() {
+    setAccountOpen(false);
+    setUser(null);
+    setApplications([]);
+    setStats(EMPTY_STATS);
+  }
+
   function openCreate() {
     setEditing(null);
     setModalOpen(true);
@@ -266,12 +355,20 @@ export default function App() {
 
   const upcoming = useMemo(() => stats.upcoming_deadlines.slice(0, 4), [stats.upcoming_deadlines]);
 
+  if (authLoading) {
+    return <div className="app-loading"><span className="loader" /><p>Opening InternTrack…</p></div>;
+  }
+
+  if (!user) {
+    return <AuthScreen onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); }} />;
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="InternTrack home"><span className="brand-mark"><Icon name="briefcase" size={18} /></span><span>Intern<span>Track</span></span></a>
         <nav aria-label="Main navigation"><a href="#overview">Overview</a><a href="#applications">Applications</a></nav>
-        <button className="button primary compact" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button>
+        <div className="topbar-actions"><button className="button primary compact" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button><button className="account-button" onClick={() => setAccountOpen(true)} aria-label="Open account settings"><span>{user.email.slice(0, 1).toUpperCase()}</span><small>{user.email}</small></button></div>
       </header>
 
       <main id="top">
@@ -331,13 +428,14 @@ export default function App() {
               <div className="mobile-application-list">{applications.map((application) => <article className="application-card" key={application.id}><div className="application-card-top"><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div><StatusBadge status={application.status} /></div><dl><div><dt>Applied</dt><dd>{formatDate(application.application_date)}</dd></div><div><dt>Deadline</dt><dd>{formatDate(application.deadline)}</dd></div></dl><div className="application-card-actions"><button className="button secondary" onClick={() => openEdit(application)}><Icon name="edit" size={16} /> Edit</button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></article>)}</div>
             </> : <div className="empty-state"><span className="empty-illustration"><Icon name="briefcase" size={34} /></span><h3>{hasFilters ? "No matching applications" : "Your next opportunity starts here"}</h3><p>{hasFilters ? "Try clearing a filter or searching for another company." : "Add your first application and keep every next step within reach."}</p>{hasFilters ? <button className="button secondary" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Clear filters</button> : <button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add first application</button>}</div>}
           </div>
+          {pagination.pages > 1 && <div className="pagination" aria-label="Application pages"><p>{pagination.total} applications · Page {page} of {pagination.pages}</p><div><button className="button secondary" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button><button className="button secondary" disabled={page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Next</button></div></div>}
         </section>
       </main>
 
       <footer><span>InternTrack</span><p>Built to make the internship search feel manageable.</p></footer>
       {modalOpen && <ApplicationModal application={editing} onClose={() => { setModalOpen(false); setEditing(null); }} onSaved={handleSaved} />}
+      {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );
 }
-

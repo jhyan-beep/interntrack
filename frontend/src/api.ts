@@ -3,8 +3,10 @@ import type {
   ApplicationStats,
   ApplicationStatus,
   InternshipApplication,
+  PaginatedApplications,
   SortBy,
-  SortOrder
+  SortOrder,
+  User
 } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -21,6 +23,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init?.headers
@@ -51,11 +54,15 @@ export function getApplications(filters: {
   status?: ApplicationStatus | "all";
   sortBy: SortBy;
   sortOrder: SortOrder;
-}): Promise<InternshipApplication[]> {
+  page?: number;
+  pageSize?: number;
+}): Promise<PaginatedApplications> {
   const params = new URLSearchParams({
     sort_by: filters.sortBy,
     sort_order: filters.sortOrder
   });
+  params.set("page", String(filters.page ?? 1));
+  params.set("page_size", String(filters.pageSize ?? 20));
   if (filters.company) params.set("company", filters.company);
   if (filters.status && filters.status !== "all") params.set("status", filters.status);
   return request(`/applications?${params.toString()}`);
@@ -63,6 +70,35 @@ export function getApplications(filters: {
 
 export function getStats(): Promise<ApplicationStats> {
   return request("/stats");
+}
+
+export function getCurrentUser(): Promise<User> {
+  return request("/auth/me");
+}
+
+export function register(email: string, password: string): Promise<User> {
+  return request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password })
+  });
+}
+
+export function login(email: string, password: string): Promise<User> {
+  return request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password })
+  });
+}
+
+export function logout(): Promise<void> {
+  return request("/auth/logout", { method: "POST" });
+}
+
+export function deleteAccount(password: string): Promise<void> {
+  return request("/auth/me", {
+    method: "DELETE",
+    body: JSON.stringify({ password })
+  });
 }
 
 export function createApplication(input: ApplicationInput): Promise<InternshipApplication> {
@@ -81,7 +117,9 @@ export function deleteApplication(id: number): Promise<void> {
 }
 
 export async function downloadCsv(): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/applications/export.csv`);
+  const response = await fetch(`${API_BASE_URL}/applications/export.csv`, {
+    credentials: "include"
+  });
   if (!response.ok) throw new ApiError("Could not export applications.", response.status);
 
   const blob = await response.blob();
@@ -96,4 +134,3 @@ export async function downloadCsv(): Promise<void> {
   link.remove();
   URL.revokeObjectURL(url);
 }
-

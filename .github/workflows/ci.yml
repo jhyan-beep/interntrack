@@ -2,7 +2,6 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -54,12 +53,13 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
-        run: pytest
+        run: |
+          alembic upgrade head
+          pytest
 
       - name: Build web app
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
-
 

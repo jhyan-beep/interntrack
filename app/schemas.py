@@ -1,6 +1,15 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    HttpUrl,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from app.models import ApplicationStatus
 
@@ -94,4 +103,33 @@ class ApplicationStats(BaseModel):
     by_status: dict[str, int]
     upcoming_deadlines: list[UpcomingDeadline]
 
+
+class PaginatedApplications(BaseModel):
+    items: list[ApplicationRead]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserRead(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
 
