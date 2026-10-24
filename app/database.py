@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     app_name: str = "InternTrack"
     environment: str = "development"
     database_url: str = "postgresql+psycopg://interntrack:interntrack@localhost:5432/interntrack"
+    cors_origins: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -56,3 +57,5 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+

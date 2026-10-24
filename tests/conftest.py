@@ -1,8 +1,8 @@
 import os
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("ENVIRONMENT", "test")
@@ -20,6 +20,14 @@ def reset_database() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
-    with TestClient(app) as test_client:
+async def client() -> AsyncGenerator[AsyncClient, None]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as test_client:
         yield test_client
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
