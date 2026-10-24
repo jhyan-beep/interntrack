@@ -1,8 +1,17 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, field_validator, model_validator
 
 from app.models import ApplicationStatus
+
+
+http_url_adapter = TypeAdapter(HttpUrl)
+
+
+def validate_source_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return str(http_url_adapter.validate_python(value))
 
 
 class ApplicationBase(BaseModel):
@@ -14,6 +23,11 @@ class ApplicationBase(BaseModel):
     location: str | None = Field(default=None, max_length=120)
     source_url: str | None = Field(default=None, max_length=500)
     notes: str | None = None
+
+    @field_validator("source_url")
+    @classmethod
+    def source_url_must_be_http(cls, value: str | None) -> str | None:
+        return validate_source_url(value)
 
     @model_validator(mode="after")
     def deadline_cannot_be_before_application_date(self) -> "ApplicationBase":
@@ -36,8 +50,18 @@ class ApplicationUpdate(BaseModel):
     source_url: str | None = Field(default=None, max_length=500)
     notes: str | None = None
 
+    @field_validator("source_url")
+    @classmethod
+    def source_url_must_be_http(cls, value: str | None) -> str | None:
+        return validate_source_url(value)
+
     @model_validator(mode="after")
     def deadline_cannot_be_before_application_date(self) -> "ApplicationUpdate":
+        required_fields = {"company", "role", "status", "application_date"}
+        for field_name in required_fields & self.model_fields_set:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+
         if (
             self.deadline is not None
             and self.application_date is not None
@@ -69,3 +93,5 @@ class ApplicationStats(BaseModel):
     active_applications: int
     by_status: dict[str, int]
     upcoming_deadlines: list[UpcomingDeadline]
+
+

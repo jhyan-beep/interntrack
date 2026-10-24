@@ -1,10 +1,13 @@
 import csv
 from contextlib import asynccontextmanager
 from io import StringIO
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -31,6 +34,14 @@ app = FastAPI(
     description="Track software engineering internship applications.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -148,6 +159,19 @@ def update_application(
     application = crud.get_application(db, application_id)
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    application_date = application_in.application_date or application.application_date
+    deadline = (
+        application_in.deadline
+        if "deadline" in application_in.model_fields_set
+        else application.deadline
+    )
+    if deadline is not None and deadline < application_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="deadline cannot be before application_date",
+        )
+
     return crud.update_application(db, application, application_in)
 
 
@@ -166,3 +190,10 @@ def delete_application(
 @app.get("/stats", response_model=ApplicationStats)
 def get_stats(db: Annotated[Session, Depends(get_db)]) -> dict:
     return crud.get_application_stats(db)
+
+
+frontend_directory = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if settings.environment != "test" and frontend_directory.exists():
+    app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")
+
+
