@@ -20,14 +20,23 @@ def reset_database() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
+async def anonymous_client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as test_client:
         yield test_client
 
 
 @pytest.fixture
+async def client(anonymous_client: AsyncClient) -> AsyncClient:
+    response = await anonymous_client.post(
+        "/auth/register",
+        json={"email": "student@example.com", "password": "securepass123"},
+    )
+    assert response.status_code == 201
+    return anonymous_client
+
+
+@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
-
 

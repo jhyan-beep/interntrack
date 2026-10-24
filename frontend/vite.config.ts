@@ -6,10 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/auth": "http://localhost:8000",
       "/applications": "http://localhost:8000",
       "/stats": "http://localhost:8000",
       "/health": "http://localhost:8000"
     }
   }
 });
-

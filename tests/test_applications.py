@@ -1,7 +1,7 @@
-import pytest
-from httpx import AsyncClient
 from datetime import date, timedelta
 
+import pytest
+from httpx import AsyncClient
 
 pytestmark = pytest.mark.anyio
 
@@ -56,7 +56,7 @@ async def test_list_applications_filters_by_status_and_company(client: AsyncClie
     response = await client.get("/applications?status=applied&company=openai")
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["items"]
     assert len(data) == 1
     assert data[0]["company"] == "OpenAI"
 
@@ -68,7 +68,7 @@ async def test_list_applications_sorts_by_deadline(client: AsyncClient) -> None:
     response = await client.get("/applications?sort_by=deadline&sort_order=asc")
 
     assert response.status_code == 200
-    data = response.json()
+    data = response.json()["items"]
     assert [item["company"] for item in data] == ["Soon Co", "Later Co"]
 
 
@@ -170,5 +170,4 @@ async def test_delete_application(client: AsyncClient) -> None:
 
     assert delete_response.status_code == 204
     assert get_response.status_code == 404
-
 

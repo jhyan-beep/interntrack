@@ -43,6 +43,19 @@ export interface ApplicationStats {
   >;
 }
 
+export interface PaginatedApplications {
+  items: InternshipApplication[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface User {
+  id: number;
+  email: string;
+  created_at: string;
+}
+
 export type SortBy = "deadline" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";
-

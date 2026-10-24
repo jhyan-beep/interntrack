@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Generator
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -12,8 +13,22 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+psycopg://interntrack:interntrack@localhost:5432/interntrack"
     cors_origins: str = "http://localhost:5173"
+    secret_key: str = "development-only-change-me-32-chars"
+    session_cookie_name: str = "interntrack_session"
+    session_expire_hours: int = 168
+    jwt_issuer: str = "interntrack"
+    jwt_audience: str = "interntrack-web"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def require_production_secret(self) -> "Settings":
+        if self.environment == "production" and (
+            self.secret_key == "development-only-change-me-32-chars"
+            or len(self.secret_key) < 32
+        ):
+            raise ValueError("SECRET_KEY must be at least 32 characters in production")
+        return self
 
 
 @lru_cache
@@ -57,5 +72,4 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
 
