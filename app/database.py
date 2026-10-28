@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Generator
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -18,17 +18,32 @@ class Settings(BaseSettings):
     session_expire_hours: int = 168
     jwt_issuer: str = "interntrack"
     jwt_audience: str = "interntrack-web"
+    allowed_hosts: str = "localhost,127.0.0.1,test"
+    auth_rate_limit_window_seconds: int = Field(default=60, ge=1)
+    auth_rate_limit_per_ip: int = Field(default=20, ge=1)
+    auth_rate_limit_per_identity: int = Field(default=10, ge=1)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
     def require_production_secret(self) -> "Settings":
+        unsafe_secrets = {
+            "development-only-change-me-32-chars",
+            "replace-with-a-long-random-value-before-deploying",
+        }
         if self.environment == "production" and (
-            self.secret_key == "development-only-change-me-32-chars"
-            or len(self.secret_key) < 32
+            self.secret_key in unsafe_secrets or len(self.secret_key) < 32
         ):
-            raise ValueError("SECRET_KEY must be at least 32 characters in production")
+            raise ValueError("SECRET_KEY must be a unique value of at least 32 characters")
         return self
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_host_list(self) -> list[str]:
+        return [host.strip() for host in self.allowed_hosts.split(",") if host.strip()]
 
 
 @lru_cache
@@ -60,10 +75,6 @@ engine = create_engine(
     **_engine_options(settings.database_url),
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
-
-
-def create_tables() -> None:
-    Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -15,6 +15,7 @@ from app.models import User
 password_hash = PasswordHash.recommended()
 settings = get_settings()
 ALGORITHM = "HS256"
+DUMMY_PASSWORD_HASH = password_hash.hash("dummy-password-used-for-timing-only")
 
 
 def normalize_email(email: str) -> str:
@@ -27,6 +28,14 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed_password: str) -> bool:
     return password_hash.verify(password, hashed_password)
+
+
+def verify_login_password(password: str, user: User | None) -> bool:
+    password_is_valid = verify_password(
+        password,
+        user.password_hash if user is not None else DUMMY_PASSWORD_HASH,
+    )
+    return user is not None and password_is_valid
 
 
 def create_session_token(user_id: int) -> str:

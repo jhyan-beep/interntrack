@@ -1,5 +1,11 @@
+from datetime import datetime, timedelta, timezone
+
+import jwt
 import pytest
 from httpx import AsyncClient
+
+from app.auth import ALGORITHM
+from app.database import get_settings
 
 
 pytestmark = pytest.mark.anyio
@@ -75,6 +81,37 @@ async def test_tampered_session_cookie_is_rejected(anonymous_client: AsyncClient
     anonymous_client.cookies.set("interntrack_session", "not.a.valid-token")
 
     response = await anonymous_client.get("/auth/me")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("claim", "value"),
+    [
+        ("exp", datetime.now(timezone.utc) - timedelta(minutes=1)),
+        ("aud", "another-application"),
+        ("iss", "another-issuer"),
+    ],
+)
+async def test_invalid_session_claims_are_rejected(
+    client: AsyncClient,
+    claim: str,
+    value: object,
+) -> None:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": "1",
+        "iat": now,
+        "exp": now + timedelta(hours=1),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+    }
+    payload[claim] = value
+    token = jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
+    client.cookies.set(settings.session_cookie_name, token)
+
+    response = await client.get("/auth/me")
 
     assert response.status_code == 401
 

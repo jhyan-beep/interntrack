@@ -15,6 +15,10 @@ InternTrack is a responsive web application for tracking software engineering in
 - Email and password accounts with HttpOnly cookie sessions
 - Per-user data isolation across every application endpoint
 - Paginated application lists
+- Login and registration rate limiting
+- Origin-based CSRF protection and strict security response headers
+- Liveness and database readiness checks
+- Spreadsheet-safe CSV exports
 - Alembic database migrations
 - PostgreSQL support with SQLAlchemy
 - Pydantic schemas for request and response validation
@@ -46,6 +50,7 @@ app/
   main.py        FastAPI routes
   models.py      SQLAlchemy models
   schemas.py     Pydantic request and response schemas
+  security.py    Rate limiting, origin checks, and response hardening
 frontend/
   src/
     api.ts        Typed API client
@@ -54,6 +59,8 @@ frontend/
 tests/
   conftest.py
   test_applications.py
+  test_auth.py
+  test_security.py
 ```
 
 ## API Overview
@@ -61,6 +68,8 @@ tests/
 | Method | Path | Description |
 | --- | --- | --- |
 | GET | `/health` | Health check |
+| GET | `/health/live` | Process liveness check |
+| GET | `/health/ready` | Database readiness check |
 | POST | `/auth/register` | Create an account and session |
 | POST | `/auth/login` | Sign in |
 | POST | `/auth/logout` | Sign out |
@@ -102,6 +111,8 @@ http://localhost:8000
 
 The interactive API documentation remains available at `http://localhost:8000/docs`.
 
+The Docker image also uses `/health/ready` for its container health check.
+
 ## Run Locally Without Docker
 
 Create a virtual environment, install dependencies, and point `DATABASE_URL` at a running PostgreSQL database:
@@ -138,6 +149,21 @@ cd frontend && pnpm build
 ```
 
 If `DATABASE_URL` is not set, the tests use an in-memory SQLite database. In CI, tests run against PostgreSQL.
+
+## Production Configuration
+
+Set these values before deploying publicly:
+
+```env
+ENVIRONMENT=production
+SECRET_KEY=<unique-random-value-with-at-least-32-characters>
+CORS_ORIGINS=https://app.example.com
+ALLOWED_HOSTS=app.example.com
+```
+
+Production mode enables Secure cookies and HSTS, requires an approved `Origin` header for state-changing requests, and disables the interactive API documentation. Terminate HTTPS at the hosting platform or reverse proxy and configure it to preserve the original host and scheme.
+
+The built-in authentication limiter is intentionally small and process-local so the project stays interview-friendly. It protects a single container; a multi-replica commercial deployment should enforce an additional shared limit at the load balancer, API gateway, or Redis layer.
 
 ## Authentication and data privacy
 
@@ -177,9 +203,9 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a responsive React, TypeScript, FastAPI, and PostgreSQL application tracker with CRUD workflows, filtering, analytics, CSV export, Dockerized deployment, GitHub Actions CI, and automated API tests.
+Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with HttpOnly sessions, per-user authorization, rate limiting, analytics, CSV export, Docker health checks, Alembic migrations, and PostgreSQL-backed CI.
 
 ## Product Roadmap
 
-The current release supports authenticated, user-owned workspaces. Remaining production work includes email verification and password reset, rate limiting, monitoring, automated backups, formal privacy documentation, and deployment hardening.
+The current release supports hardened authenticated workspaces suitable for a controlled beta. Remaining production work includes email verification and password reset, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, and billing.
 

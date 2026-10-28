@@ -31,7 +31,7 @@ class ApplicationBase(BaseModel):
     deadline: date | None = None
     location: str | None = Field(default=None, max_length=120)
     source_url: str | None = Field(default=None, max_length=500)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=5_000)
 
     @field_validator("source_url")
     @classmethod
@@ -57,7 +57,7 @@ class ApplicationUpdate(BaseModel):
     deadline: date | None = None
     location: str | None = Field(default=None, max_length=120)
     source_url: str | None = Field(default=None, max_length=500)
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=5_000)
 
     @field_validator("source_url")
     @classmethod
