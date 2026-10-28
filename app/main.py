@@ -4,12 +4,14 @@ from io import StringIO
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import crud
 from app.auth import (
@@ -19,6 +21,7 @@ from app.auth import (
     hash_password,
     normalize_email,
     set_session_cookie,
+    verify_login_password,
     verify_password,
 )
 from app.database import get_db, get_settings
@@ -34,6 +37,12 @@ from app.schemas import (
     UserLogin,
     UserRead,
 )
+from app.security import (
+    OriginProtectionMiddleware,
+    SecurityHeadersMiddleware,
+    enforce_auth_rate_limit,
+    sanitize_csv_cell,
+)
 
 settings = get_settings()
 
@@ -41,16 +50,22 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.0.0",
+    version="2.1.0",
+    docs_url=None if settings.environment == "production" else "/docs",
+    redoc_url=None if settings.environment == "production" else "/redoc",
+    openapi_url=None if settings.environment == "production" else "/openapi.json",
 )
 
+app.add_middleware(OriginProtectionMiddleware, settings=settings)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware, settings=settings)
 
 
 @app.get("/health")
@@ -58,12 +73,31 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/health/live")
+def liveness_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness_check(db: Annotated[Session, Depends(get_db)]) -> dict[str, str]:
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        ) from None
+    return {"status": "ready"}
+
+
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(
     user_in: UserCreate,
+    request: Request,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
+    enforce_auth_rate_limit(request, "register", normalize_email(user_in.email))
     if get_user_by_email(db, user_in.email) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
@@ -88,11 +122,13 @@ def register(
 @app.post("/auth/login", response_model=UserRead)
 def login(
     credentials: UserLogin,
+    request: Request,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
+    enforce_auth_rate_limit(request, "login", normalize_email(credentials.email))
     user = get_user_by_email(db, credentials.email)
-    if user is None or not verify_password(credentials.password, user.password_hash):
+    if not verify_login_password(credentials.password, user):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -218,14 +254,14 @@ def export_applications_csv(
         writer.writerow(
             [
                 application.id,
-                application.company,
-                application.role,
-                application.status.value,
+                sanitize_csv_cell(application.company),
+                sanitize_csv_cell(application.role),
+                sanitize_csv_cell(application.status.value),
                 application.application_date,
                 application.deadline or "",
-                application.location or "",
-                application.source_url or "",
-                application.notes or "",
+                sanitize_csv_cell(application.location or ""),
+                sanitize_csv_cell(application.source_url or ""),
+                sanitize_csv_cell(application.notes or ""),
                 application.created_at,
                 application.updated_at,
             ]

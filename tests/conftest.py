@@ -9,14 +9,17 @@ os.environ.setdefault("ENVIRONMENT", "test")
 
 from app.database import Base, engine
 from app.main import app
+from app.security import auth_rate_limiter
 
 
 @pytest.fixture(autouse=True)
 def reset_database() -> Generator[None, None, None]:
+    auth_rate_limiter.reset()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+    auth_rate_limiter.reset()
 
 
 @pytest.fixture
