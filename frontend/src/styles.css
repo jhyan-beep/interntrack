@@ -182,6 +182,21 @@ tbody tr:hover { background: #fbfcff; }
 .account-summary > div { min-width: 0; display: grid; gap: 4px; }
 .account-summary strong { overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .account-summary small { color: var(--muted); font-size: 11px; }
+.reminder-settings { margin-top: 22px; padding: 20px; border: 1px solid var(--line); border-radius: 14px; background: #fbfbf8; }
+.reminder-settings h3 { margin: 0 0 5px; font-size: 16px; }
+.reminder-settings p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.toggle-row { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.toggle-row > span { display: grid; gap: 3px; }
+.toggle-row strong { color: #344054; font-size: 13px; }
+.toggle-row small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.toggle-row input { width: 18px; height: 18px; accent-color: var(--blue); }
+.reminder-days { margin-top: 17px; display: grid; gap: 7px; color: #445163; font-size: 12px; font-weight: 700; }
+.reminder-days select { height: 42px; padding: 0 11px; border: 1px solid #d8dad8; border-radius: 10px; color: var(--ink); background: white; }
+.reminder-timezone { margin-top: 10px !important; }
+.reminder-timezone strong { color: #445163; }
+.reminder-save { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.reminder-save span { color: #287b4c; font-size: 12px; font-weight: 700; }
+.settings-loading { margin-top: 18px !important; }
 .account-actions { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; }
 .danger-link { padding: 8px; border: 0; color: #bc3f33; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-link:hover { text-decoration: underline; }
@@ -295,4 +310,3 @@ footer span { font: 800 15px "Manrope", sans-serif; color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
-

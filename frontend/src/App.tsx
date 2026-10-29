@@ -7,10 +7,12 @@ import {
   downloadCsv,
   getApplications,
   getCurrentUser,
+  getReminderSettings,
   getStats,
   logout,
   parseJobPosting,
   requestEmailVerification,
+  updateReminderSettings,
   verifyEmail,
   updateApplication
 } from "./api";
@@ -22,6 +24,7 @@ import {
   type ApplicationStats,
   type ApplicationStatus,
   type InternshipApplication,
+  type ReminderSettings,
   type SortBy,
   type SortOrder,
   type User
@@ -264,6 +267,37 @@ function AccountDialog({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reminders, setReminders] = useState<ReminderSettings | null>(null);
+  const [reminderBusy, setReminderBusy] = useState(true);
+  const [reminderSaved, setReminderSaved] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getReminderSettings()
+      .then((settings) => active && setReminders({
+        ...settings,
+        reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+      }))
+      .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load reminder settings."))
+      .finally(() => active && setReminderBusy(false));
+    return () => { active = false; };
+  }, []);
+
+  async function handleReminderSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!reminders) return;
+    setReminderBusy(true);
+    setReminderSaved(false);
+    setError("");
+    try {
+      setReminders(await updateReminderSettings(reminders));
+      setReminderSaved(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save reminder settings.");
+    } finally {
+      setReminderBusy(false);
+    }
+  }
 
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
@@ -287,6 +321,19 @@ function AccountDialog({
           <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
         </div>
         <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.</small></div></div>
+        {!confirmingDelete && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
+          <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>
+          {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
+            <label className="toggle-row">
+              <span><strong>Email reminders</strong><small>{user.email_verified ? "You can turn these off at any time." : "Verify your email before enabling reminders."}</small></span>
+              <input type="checkbox" checked={reminders.deadline_reminders_enabled} disabled={!user.email_verified} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminders_enabled: event.target.checked }); }} />
+            </label>
+            <label className="reminder-days">Remind me before the deadline<select value={reminders.deadline_reminder_days} disabled={!reminders.deadline_reminders_enabled} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminder_days: Number(event.target.value) }); }}><option value={1}>1 day before</option><option value={3}>3 days before</option><option value={7}>7 days before</option><option value={14}>14 days before</option></select></label>
+            <p className="reminder-timezone">Dates use your browser time zone: <strong>{reminders.reminder_timezone}</strong></p>
+            <div className="reminder-save"><span aria-live="polite">{reminderSaved ? "Saved" : ""}</span><button className="button secondary compact" type="submit" disabled={reminderBusy}>{reminderBusy ? "Saving…" : "Save reminders"}</button></div>
+          </>}
+        </form>}
+        {error && !confirmingDelete && <p className="form-error" role="alert">{error}</p>}
         {!confirmingDelete ? <div className="account-actions"><button className="button secondary" onClick={() => void onSignedOut()}>Sign out</button><button className="danger-link" onClick={() => setConfirmingDelete(true)}>Delete account</button></div> : <form className="delete-account-form" onSubmit={handleDelete}><h3>Delete your account?</h3><p>This permanently removes your account and every application. Enter your password to confirm.</p><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setConfirmingDelete(false); setPassword(""); setError(""); }}>Keep account</button><button type="submit" className="button destructive" disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</button></div></form>}
       </section>
     </div>
@@ -570,4 +617,3 @@ export default function App() {
     </div>
   );
 }
-

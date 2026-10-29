@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
@@ -160,6 +161,31 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReminderSettingsRead(BaseModel):
+    deadline_reminders_enabled: bool
+    deadline_reminder_days: int
+    reminder_timezone: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReminderSettingsUpdate(BaseModel):
+    deadline_reminders_enabled: bool | None = None
+    deadline_reminder_days: int | None = Field(default=None, ge=1, le=30)
+    reminder_timezone: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("reminder_timezone")
+    @classmethod
+    def reminder_timezone_must_be_valid(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            raise ValueError("reminder_timezone must be a valid IANA time zone") from None
+        return value
+
+
 class DeleteAccountRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
@@ -174,5 +200,4 @@ class PasswordForgotRequest(BaseModel):
 
 class PasswordResetRequest(EmailTokenRequest):
     new_password: str = Field(..., min_length=8, max_length=128)
-
 

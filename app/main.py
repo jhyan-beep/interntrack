@@ -47,6 +47,8 @@ from app.schemas import (
     PaginatedApplications,
     PasswordForgotRequest,
     PasswordResetRequest,
+    ReminderSettingsRead,
+    ReminderSettingsUpdate,
     UserCreate,
     UserLogin,
     UserRead,
@@ -64,7 +66,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.3.0",
+    version="2.4.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -123,7 +125,7 @@ def register(
     try:
         db.flush()
         email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
-        enqueue_email(db, verification_email(user.email, email_token))
+        enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -163,7 +165,7 @@ def request_email_verification(
     enforce_auth_rate_limit(request, "email_verification", user.email)
     if not user.email_verified:
         email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
-        enqueue_email(db, verification_email(user.email, email_token))
+        enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
         db.commit()
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
@@ -201,7 +203,7 @@ def forgot_password(
     user = get_user_by_email(db, normalized_email)
     if user is not None:
         email_token = issue_email_token(db, user, EmailTokenPurpose.RESET_PASSWORD)
-        enqueue_email(db, password_reset_email(user.email, email_token))
+        enqueue_email(db, password_reset_email(user.email, email_token), user_id=user.id)
         db.commit()
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
@@ -242,6 +244,31 @@ def logout(response: Response) -> Response:
 
 @app.get("/auth/me", response_model=UserRead)
 def get_me(user: CurrentUser) -> User:
+    return user
+
+
+@app.get("/reminders/settings", response_model=ReminderSettingsRead)
+def get_reminder_settings(user: CurrentUser) -> User:
+    return user
+
+
+@app.patch("/reminders/settings", response_model=ReminderSettingsRead)
+def update_reminder_settings(
+    reminder_in: ReminderSettingsUpdate,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    if reminder_in.deadline_reminders_enabled is True and not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verify your email before enabling deadline reminders",
+        )
+    for field_name, value in reminder_in.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(user, field_name, value)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -459,5 +486,4 @@ def get_stats(
 frontend_directory = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if settings.environment != "test" and frontend_directory.exists():
     app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")
-
 

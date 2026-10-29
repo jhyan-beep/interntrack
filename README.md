@@ -16,6 +16,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Email and password accounts with HttpOnly cookie sessions
 - Email verification and secure password reset links
 - Durable email outbox with a retrying background worker
+- Opt-in, idempotent application deadline email reminders
 - Per-user data isolation across every application endpoint
 - Paginated application lists
 - Login and registration rate limiting
@@ -57,6 +58,7 @@ app/
   email_worker.py    Background outbox processor
   main.py        FastAPI routes
   models.py      SQLAlchemy models
+  reminders.py   Deadline reminder selection, templates, and deduplication
   schemas.py     Pydantic request and response schemas
   security.py    Rate limiting, origin checks, and response hardening
 frontend/
@@ -69,6 +71,7 @@ tests/
   test_applications.py
   test_auth.py
   test_email.py
+  test_reminders.py
   test_security.py
 ```
 
@@ -89,6 +92,8 @@ tests/
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
 | POST | `/auth/password/reset` | Set a new password with a single-use token |
+| GET | `/reminders/settings` | View deadline reminder preferences |
+| PATCH | `/reminders/settings` | Update deadline reminder preferences |
 | POST | `/applications` | Create an application |
 | GET | `/applications` | List applications with filters and sorting |
 | GET | `/applications/{application_id}` | Get one application |
@@ -125,7 +130,7 @@ http://localhost:8000
 
 The interactive API documentation remains available at `http://localhost:8000/docs`.
 
-The Docker image also uses `/health/ready` for its container health check. Development uses `EMAIL_DELIVERY_MODE=console`, so verification and reset links appear in the `email-worker` logs:
+The Docker image also uses `/health/ready` for its container health check. Development uses `EMAIL_DELIVERY_MODE=console`, so verification, reset, and deadline reminder emails appear in the `email-worker` logs:
 
 ```bash
 docker compose logs -f email-worker
@@ -191,6 +196,7 @@ SMTP_PORT=587
 SMTP_USERNAME=<smtp-username>
 SMTP_PASSWORD=<smtp-password>
 SMTP_STARTTLS=true
+REMINDER_SCAN_INTERVAL_SECONDS=300
 OPENAI_API_KEY=<server-side-project-key>
 OPENAI_MODEL=gpt-6-luna
 OPENAI_TIMEOUT_SECONDS=20
@@ -206,11 +212,17 @@ Verified users can paste a job description and optional posting URL into the AI 
 
 The default model is `gpt-6-luna`, selected for a focused extraction workload, and can be changed with `OPENAI_MODEL`. Requests use `store=False`, are input-limited and rate-limited, and treat the posting as untrusted data. `OPENAI_API_KEY` is read only by the backend and must come from the deployment secret manager. If it is absent, normal tracking features continue to work and AI import returns a clear configuration error.
 
+## Deadline reminders
+
+Deadline reminders are opt-in and available only after email verification. Users choose a reminder window from Account settings, and the browser's IANA time zone is stored with that preference so date calculations follow the user's local day. The background worker scans active `saved`, `applied`, and `interview` applications and queues one email when a deadline enters that window. A database uniqueness constraint on application and deadline makes repeated worker scans safe; changing the application's deadline creates a new reminder opportunity.
+
+The scan includes overdue-worker recovery: if the service was unavailable on the exact reminder day, it queues the reminder when it returns as long as the deadline has not passed. `REMINDER_SCAN_INTERVAL_SECONDS` controls the scan cadence and defaults to five minutes.
+
 ## Authentication and data privacy
 
 Passwords are hashed with Argon2 and never returned by the API. A signed, expiring JWT is stored in an HttpOnly cookie, and every application query is scoped to the authenticated user. Verification and reset tokens are random, single-use, expire automatically, and are stored only as SHA-256 hashes. Password resets increment the user's session version, invalidating existing sessions.
 
-Email is written to a database outbox in the same transaction as the account action. A separate worker sends it through SMTP and retries temporary failures with exponential backoff. After successful delivery, the worker redacts the message bodies so raw action links do not remain in the outbox. Set a unique `SECRET_KEY` of at least 32 characters before running with `ENVIRONMENT=production`.
+Email is written to a database outbox in the same transaction as the account action. A separate worker sends it through SMTP and retries temporary failures with exponential backoff. After successful delivery, the worker redacts the message bodies so raw action links do not remain in the outbox. Outbox rows are associated with their user so pending mail is removed when an account is deleted. Set a unique `SECRET_KEY` of at least 32 characters before running with `ENVIRONMENT=production`.
 
 If you used an earlier development version that created tables automatically, reset the local Docker volume before the first migration-based startup:
 
@@ -246,10 +258,9 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs for reviewable job-posting imports, email verification, single-use password recovery, durable background delivery, per-user authorization, Docker, Alembic migrations, and PostgreSQL-backed CI.
+Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs for reviewable job-posting imports, opt-in deadline reminders, email verification, single-use password recovery, durable background delivery, per-user authorization, Docker, Alembic migrations, and PostgreSQL-backed CI.
 
 ## Product Roadmap
 
-The current release supports hardened authenticated workspaces, email verification, password recovery, and reviewable AI-assisted application entry suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, deadline reminders, and billing.
-
+The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, and reviewable AI-assisted application entry suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, and billing.
 

@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from enum import Enum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -35,6 +35,12 @@ def utc_now() -> datetime:
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "deadline_reminder_days BETWEEN 1 AND 30",
+            name="ck_users_deadline_reminder_days",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
@@ -44,6 +50,16 @@ class User(Base):
         nullable=True,
     )
     session_version: Mapped[int] = mapped_column(default=1, server_default="1")
+    deadline_reminders_enabled: Mapped[bool] = mapped_column(
+        default=False,
+        server_default="false",
+    )
+    deadline_reminder_days: Mapped[int] = mapped_column(default=3, server_default="3")
+    reminder_timezone: Mapped[str] = mapped_column(
+        String(64),
+        default="UTC",
+        server_default="UTC",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     applications: Mapped[list["InternshipApplication"]] = relationship(
@@ -51,6 +67,14 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     email_tokens: Mapped[list["EmailToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    email_messages: Mapped[list["EmailOutbox"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    deadline_reminder_deliveries: Mapped[list["DeadlineReminderDelivery"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
@@ -94,6 +118,11 @@ class EmailOutbox(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     to_email: Mapped[str] = mapped_column(String(320))
     subject: Mapped[str] = mapped_column(String(200))
     text_body: Mapped[str] = mapped_column(Text)
@@ -121,6 +150,8 @@ class EmailOutbox(Base):
         default=utc_now,
         onupdate=utc_now,
     )
+
+    user: Mapped[User | None] = relationship(back_populates="email_messages")
 
 
 class InternshipApplication(Base):
@@ -159,5 +190,38 @@ class InternshipApplication(Base):
         onupdate=utc_now,
     )
     user: Mapped[User] = relationship(back_populates="applications")
+    deadline_reminder_deliveries: Mapped[list["DeadlineReminderDelivery"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
 
+
+class DeadlineReminderDelivery(Base):
+    __tablename__ = "deadline_reminder_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "application_id",
+            "deadline",
+            name="uq_deadline_reminder_application_deadline",
+        ),
+        Index("ix_deadline_reminder_deliveries_user_queued", "user_id", "queued_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("internship_applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    deadline: Mapped[date] = mapped_column(Date)
+    days_before: Mapped[int]
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped[User] = relationship(back_populates="deadline_reminder_deliveries")
+    application: Mapped[InternshipApplication] = relationship(
+        back_populates="deadline_reminder_deliveries"
+    )
 
