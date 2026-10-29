@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     jwt_issuer: str = "interntrack"
     jwt_audience: str = "interntrack-web"
     allowed_hosts: str = "localhost,127.0.0.1,test"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["text", "json"] = "text"
     auth_rate_limit_window_seconds: int = Field(default=60, ge=1)
     auth_rate_limit_per_ip: int = Field(default=20, ge=1)
     auth_rate_limit_per_identity: int = Field(default=10, ge=1)

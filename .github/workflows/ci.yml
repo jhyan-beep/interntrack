@@ -55,6 +55,7 @@ jobs:
       - name: Run tests
         run: |
           alembic upgrade head
+          alembic check
           pytest
 
       - name: Build web app
@@ -62,4 +63,15 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+
+      - name: Validate production operations files
+        run: |
+          sh -n ops/backup_postgres.sh
+          sh -n ops/restore_postgres.sh
+          PRODUCTION_ENV_FILE=.env.production.example docker compose --env-file .env.production.example -f compose.production.yml config --quiet
+
+      - name: Build production image as a non-root user
+        run: |
+          docker build -t interntrack:ci .
+          docker run --rm --entrypoint sh interntrack:ci -c 'test "$(id -u)" -ne 0'
 

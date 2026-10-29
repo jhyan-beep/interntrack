@@ -3,10 +3,11 @@ import time
 
 from app.database import get_settings
 from app.email_delivery import process_outbox_batch
+from app.observability import configure_logging
 from app.reminders import enqueue_due_deadline_reminders
 
 
-logging.basicConfig(level=logging.INFO)
+configure_logging(get_settings())
 logger = logging.getLogger("interntrack.email_worker")
 
 

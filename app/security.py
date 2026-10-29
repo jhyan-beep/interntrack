@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 
 from app.database import Settings, get_settings
+from app.observability import reset_request_id, set_request_id
 
 
 logger = logging.getLogger("interntrack.requests")
@@ -141,8 +142,25 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
             else str(uuid4())
         )
+        request_id_token = set_request_id(request_id)
         started_at = time.perf_counter()
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (time.perf_counter() - started_at) * 1_000
+            logger.exception(
+                "Request failed",
+                extra={
+                    "event": "http_request_failed",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "duration_ms": round(duration_ms, 1),
+                },
+            )
+            raise
+        finally:
+            reset_request_id(request_id_token)
 
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -173,12 +191,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         duration_ms = (time.perf_counter() - started_at) * 1_000
         logger.info(
-            "%s %s -> %s in %.1fms request_id=%s",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
-            request_id,
+            "Request completed",
+            extra={
+                "event": "http_request",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": round(duration_ms, 1),
+            },
         )
         return response
 
