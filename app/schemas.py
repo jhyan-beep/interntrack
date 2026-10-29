@@ -186,6 +186,36 @@ class ReminderSettingsUpdate(BaseModel):
         return value
 
 
+class BetaProgress(BaseModel):
+    application_count: int
+    email_verified: bool
+    ai_import_used: bool
+    reminders_enabled: bool
+    feedback_submitted: bool
+    activated: bool
+
+
+class BetaFeedbackCreate(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1_000)
+
+    @field_validator("comment")
+    @classmethod
+    def normalize_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class BetaFeedbackRead(BaseModel):
+    rating: int
+    comment: str | None
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DeleteAccountRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 

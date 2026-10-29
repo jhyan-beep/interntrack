@@ -31,6 +31,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Docker Compose setup for API, email worker, and PostgreSQL
 - Production Compose stack with Caddy-managed HTTPS and non-root containers
 - Guarded PostgreSQL backup and restore commands
+- Private-beta onboarding, first-party milestone metrics, and in-app feedback
 - GitHub Actions CI
 
 ## Tech Stack
@@ -55,6 +56,8 @@ InternTrack is a responsive web application for tracking software engineering in
 app/
   ai.py          Server-side AI extraction and provider error handling
   auth.py        Password hashing, sessions, and current-user dependency
+  beta.py        Privacy-conscious milestones, feedback, and activation metrics
+  beta_metrics.py  Aggregate beta report CLI without emails or job content
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
   email_delivery.py  Email templates, outbox queue, SMTP, and retry handling
@@ -75,15 +78,16 @@ tests/
   conftest.py
   test_applications.py
   test_auth.py
+  test_beta.py
   test_email.py
   test_observability.py
   test_reminders.py
+  test_security.py
 ops/
   backup_postgres.sh   Atomic PostgreSQL custom-format backup
   restore_postgres.sh  Confirmation-guarded database restore
 compose.production.yml Production API, worker, database, proxy, and ops services
 Caddyfile              Automatic HTTPS reverse proxy
-  test_security.py
 ```
 
 ## API Overview
@@ -105,6 +109,9 @@ Caddyfile              Automatic HTTPS reverse proxy
 | POST | `/auth/password/reset` | Set a new password with a single-use token |
 | GET | `/reminders/settings` | View deadline reminder preferences |
 | PATCH | `/reminders/settings` | Update deadline reminder preferences |
+| POST | `/beta/session` | Record one dashboard visit per user and day |
+| GET | `/beta/progress` | View private-beta onboarding milestones |
+| PUT | `/beta/feedback` | Create or replace the current user's feedback |
 | POST | `/applications` | Create an application |
 | GET | `/applications` | List applications with filters and sorting |
 | GET | `/applications/{application_id}` | Get one application |
@@ -279,6 +286,18 @@ Deadline reminders are opt-in and available only after email verification. Users
 
 The scan includes overdue-worker recovery: if the service was unavailable on the exact reminder day, it queues the reminder when it returns as long as the deadline has not passed. `REMINDER_SCAN_INTERVAL_SECONDS` controls the scan cadence and defaults to five minutes.
 
+## Private-beta validation
+
+The dashboard includes a four-step launchpad for adding three applications, verifying email, trying AI import, and enabling reminders. InternTrack records only named milestone events, at most once per user and day. It does not attach job descriptions, browsing history, URLs, or arbitrary metadata to these events.
+
+Beta users can submit a 1–5 rating and an optional comment in the app. A new submission replaces that user's previous response, and both feedback and milestone rows are deleted with the account. Operators can view aggregate validation metrics without exposing emails or comments:
+
+```bash
+python -m app.beta_metrics
+```
+
+The report includes total, verified, activated, and seven-day active users plus aggregate adoption counts for AI import, reminders, feedback, and applications. “Activated” currently means that a user has tracked at least three applications.
+
 ## Authentication and data privacy
 
 Passwords are hashed with Argon2 and never returned by the API. A signed, expiring JWT is stored in an HttpOnly cookie, and every application query is scoped to the authenticated user. Verification and reset tokens are random, single-use, expire automatically, and are stored only as SHA-256 hashes. Password resets increment the user's session version, invalidating existing sessions.
@@ -319,9 +338,9 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs, timezone-aware deadline reminders, transactional email, correlated JSON logging, non-root containers, automated database backup tooling, Alembic migrations, and PostgreSQL-backed CI.
+Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs, timezone-aware reminders, privacy-conscious activation analytics, transactional email, JSON logging, non-root containers, Alembic migrations, and PostgreSQL-backed CI.
 
 ## Product Roadmap
 
-The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, structured logs, HTTPS deployment configuration, and guarded backup tooling suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing.
+The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, private-beta onboarding and metrics, structured logs, HTTPS deployment configuration, and guarded backup tooling. Remaining launch work includes deploying a pilot, configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing only after retention is validated.
 

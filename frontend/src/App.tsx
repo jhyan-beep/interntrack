@@ -6,12 +6,15 @@ import {
   deleteApplication,
   downloadCsv,
   getApplications,
+  getBetaProgress,
   getCurrentUser,
   getReminderSettings,
   getStats,
   logout,
   parseJobPosting,
+  recordBetaSession,
   requestEmailVerification,
+  submitBetaFeedback,
   updateReminderSettings,
   verifyEmail,
   updateApplication
@@ -20,6 +23,7 @@ import AuthScreen from "./AuthScreen";
 import {
   STATUSES,
   type AiJobDraft,
+  type BetaProgress,
   type ApplicationInput,
   type ApplicationStats,
   type ApplicationStatus,
@@ -340,6 +344,113 @@ function AccountDialog({
   );
 }
 
+function BetaLaunchpad({
+  progress,
+  onAdd,
+  onAiImport,
+  onEnableReminders,
+  onVerify,
+  onFeedback
+}: {
+  progress: BetaProgress;
+  onAdd: () => void;
+  onAiImport: () => void;
+  onEnableReminders: () => void;
+  onVerify: () => void;
+  onFeedback: () => void;
+}) {
+  const steps = [
+    {
+      complete: progress.application_count >= 3,
+      title: "Track three applications",
+      detail: `${Math.min(progress.application_count, 3)} of 3 added`,
+      action: "Add one",
+      onAction: onAdd
+    },
+    {
+      complete: progress.email_verified,
+      title: "Verify your email",
+      detail: "Unlock recovery, AI import, and reminders",
+      action: "Send email",
+      onAction: onVerify
+    },
+    {
+      complete: progress.ai_import_used,
+      title: "Try AI import",
+      detail: "Review a structured draft before saving",
+      action: "Try it",
+      onAction: onAiImport
+    },
+    {
+      complete: progress.reminders_enabled,
+      title: "Enable a deadline reminder",
+      detail: "Choose the timing in Account settings",
+      action: "Open settings",
+      onAction: onEnableReminders
+    }
+  ];
+  const completed = steps.filter((step) => step.complete).length;
+
+  return (
+    <section className="beta-launchpad" aria-labelledby="beta-launchpad-title">
+      <div className="beta-launchpad-copy">
+        <span className="beta-label">Private beta</span>
+        <h2 id="beta-launchpad-title">Set up your search workspace</h2>
+        <p>Complete the essentials, then tell us what would make InternTrack worth returning to.</p>
+        <div className="beta-progress" aria-label={`${completed} of ${steps.length} setup steps complete`}><span style={{ width: `${(completed / steps.length) * 100}%` }} /></div>
+        <small>{completed} of {steps.length} complete · Only milestone events are measured—never job text or browsing history.</small>
+        <button className="button secondary compact" onClick={onFeedback}>{progress.feedback_submitted ? "Update feedback" : "Share beta feedback"}</button>
+      </div>
+      <div className="beta-checklist">
+        {steps.map((step) => <div className={`beta-step ${step.complete ? "complete" : ""}`} key={step.title}><span aria-hidden="true">{step.complete ? "✓" : ""}</span><div><strong>{step.title}</strong><small>{step.detail}</small></div>{!step.complete && <button onClick={step.onAction}>{step.action}</button>}</div>)}
+      </div>
+    </section>
+  );
+}
+
+function BetaFeedbackDialog({
+  onClose,
+  onSubmitted
+}: {
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!rating) return;
+    setBusy(true);
+    setError("");
+    try {
+      await submitBetaFeedback(rating, comment.trim());
+      onSubmitted();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save your feedback.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal beta-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="beta-feedback-title">
+        <div className="modal-header"><div><p className="eyebrow">Private beta</p><h2 id="beta-feedback-title">How useful is InternTrack?</h2></div><button className="icon-button" onClick={onClose} aria-label="Close feedback"><Icon name="close" /></button></div>
+        <form onSubmit={handleSubmit}>
+          <fieldset><legend>Choose a rating</legend><div className="rating-buttons">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} className={rating >= value ? "selected" : ""} aria-label={`${value} out of 5`} aria-pressed={rating === value} onClick={() => setRating(value)}>★</button>)}</div></fieldset>
+          <label>What should we improve first?<textarea rows={5} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Tell us what slowed you down or what you still manage elsewhere." /><small>{comment.length}/1000</small></label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <p className="feedback-privacy">Your latest response replaces your previous one and is deleted with your account.</p>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={!rating || busy}>{busy ? "Saving…" : "Send feedback"}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -362,6 +473,8 @@ export default function App() {
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 0 });
+  const [betaProgress, setBetaProgress] = useState<BetaProgress | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     async function initializeAuth() {
@@ -415,13 +528,15 @@ export default function App() {
     if (!user) return;
     setLoading(true);
     try {
-      const [nextApplications, nextStats] = await Promise.all([
+      const [nextApplications, nextStats, nextBetaProgress] = await Promise.all([
         getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page }),
-        getStats()
+        getStats(),
+        getBetaProgress()
       ]);
       setApplications(nextApplications.items);
       setPagination({ total: nextApplications.total, pages: nextApplications.pages });
       setStats(nextStats);
+      setBetaProgress(nextBetaProgress);
       setError("");
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) setUser(null);
@@ -433,6 +548,7 @@ export default function App() {
 
   useEffect(() => { if (user) void loadApplications(); }, [loadApplications, user]);
   useEffect(() => { if (user) void loadDashboard(); }, [user]);
+  useEffect(() => { if (user) void recordBetaSession().catch(() => undefined); }, [user?.id]);
 
   useEffect(() => {
     if (!toast) return;
@@ -470,6 +586,7 @@ export default function App() {
     setUser(null);
     setApplications([]);
     setStats(EMPTY_STATS);
+    setBetaProgress(null);
   }
 
   function handleAccountDeleted() {
@@ -477,6 +594,7 @@ export default function App() {
     setUser(null);
     setApplications([]);
     setStats(EMPTY_STATS);
+    setBetaProgress(null);
   }
 
   async function handleRequestVerification() {
@@ -528,6 +646,12 @@ export default function App() {
     setModalOpen(true);
   }
 
+  function handleFeedbackSubmitted() {
+    setFeedbackOpen(false);
+    setToast("Thanks—your beta feedback was saved");
+    setBetaProgress((current) => current ? { ...current, feedback_submitted: true } : current);
+  }
+
   const upcoming = useMemo(() => stats.upcoming_deadlines.slice(0, 4), [stats.upcoming_deadlines]);
 
   if (authLoading) {
@@ -559,6 +683,8 @@ export default function App() {
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => void loadDashboard()}>Try again</button></div>}
 
         {!user.email_verified && <div className="verification-banner" role="status"><div><strong>Verify your email</strong><span>Confirm your address so password recovery and future reminders reach you.</span></div><button className="button secondary compact" disabled={verificationBusy} onClick={() => void handleRequestVerification()}>{verificationBusy ? "Sending…" : "Send verification email"}</button></div>}
+
+        {betaProgress && <BetaLaunchpad progress={betaProgress} onAdd={openCreate} onAiImport={openAiImport} onEnableReminders={() => setAccountOpen(true)} onVerify={() => void handleRequestVerification()} onFeedback={() => setFeedbackOpen(true)} />}
 
         <section className="metric-grid" aria-label="Application summary">
           <article className="metric-card"><span className="metric-icon blue"><Icon name="briefcase" /></span><div><p>Total applications</p><strong>{loading ? "—" : stats.total_applications}</strong><small>All tracked roles</small></div></article>
@@ -612,7 +738,8 @@ export default function App() {
       <footer><span>InternTrack</span><p>Built to make the internship search feel manageable.</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
-      {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {accountOpen && <AccountDialog user={user} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>
   );

@@ -26,6 +26,7 @@ from app.auth import (
     verify_login_password,
     verify_password,
 )
+from app.beta import get_beta_progress, record_product_event, save_beta_feedback
 from app.database import get_db, get_settings
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
@@ -43,6 +44,9 @@ from app.schemas import (
     ApplicationUpdate,
     AiJobDraft,
     AiJobParseRequest,
+    BetaFeedbackCreate,
+    BetaFeedbackRead,
+    BetaProgress,
     DeleteAccountRequest,
     EmailTokenRequest,
     PaginatedApplications,
@@ -68,7 +72,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.5.0",
+    version="2.6.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -126,6 +130,7 @@ def register(
     db.add(user)
     try:
         db.flush()
+        record_product_event(db, user.id, "account_created")
         email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
         enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
         db.commit()
@@ -268,6 +273,8 @@ def update_reminder_settings(
     for field_name, value in reminder_in.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(user, field_name, value)
+    if reminder_in.deadline_reminders_enabled is True:
+        record_product_event(db, user.id, "reminders_enabled")
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -279,6 +286,7 @@ def create_ai_job_draft(
     job_in: AiJobParseRequest,
     request: Request,
     user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
 ) -> AiJobDraft:
     if not user.email_verified:
         raise HTTPException(
@@ -287,7 +295,7 @@ def create_ai_job_draft(
         )
     enforce_auth_rate_limit(request, "ai_job_parse", str(user.id))
     try:
-        return parse_job_posting(job_in, user.id)
+        draft = parse_job_posting(job_in, user.id)
     except AiNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -298,6 +306,38 @@ def create_ai_job_draft(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+    record_product_event(db, user.id, "ai_draft_created")
+    db.commit()
+    return draft
+
+
+@app.post("/beta/session", status_code=status.HTTP_204_NO_CONTENT)
+def record_beta_session(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    record_product_event(db, user.id, "dashboard_viewed")
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/beta/progress", response_model=BetaProgress)
+def beta_progress(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    return get_beta_progress(db, user)
+
+
+@app.put("/beta/feedback", response_model=BetaFeedbackRead)
+def submit_beta_feedback(
+    feedback_in: BetaFeedbackCreate,
+    request: Request,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+):
+    enforce_auth_rate_limit(request, "beta_feedback", str(user.id))
+    return save_beta_feedback(db, user.id, feedback_in)
 
 
 @app.delete("/auth/me", status_code=status.HTTP_204_NO_CONTENT)
@@ -326,7 +366,10 @@ def create_application(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> InternshipApplication:
-    return crud.create_application(db, application_in, user.id)
+    application = crud.create_application(db, application_in, user.id)
+    record_product_event(db, user.id, "application_created")
+    db.commit()
+    return application
 
 
 @app.get("/applications", response_model=PaginatedApplications)
