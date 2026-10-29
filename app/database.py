@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Generator, Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -35,8 +35,16 @@ class Settings(BaseSettings):
     email_verification_expire_hours: int = Field(default=24, ge=1, le=168)
     password_reset_expire_minutes: int = Field(default=30, ge=5, le=120)
     email_worker_poll_seconds: int = Field(default=5, ge=1, le=60)
+    openai_api_key: SecretStr | None = None
+    openai_model: str = "gpt-6-luna"
+    openai_timeout_seconds: int = Field(default=20, ge=5, le=60)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("openai_api_key", mode="before")
+    @classmethod
+    def blank_openai_key_is_unconfigured(cls, value):
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def require_production_secret(self) -> "Settings":

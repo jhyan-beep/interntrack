@@ -2,6 +2,7 @@ import type {
   ApplicationInput,
   ApplicationStats,
   ApplicationStatus,
+  AiJobDraft,
   InternshipApplication,
   PaginatedApplications,
   SortBy,
@@ -125,6 +126,16 @@ export function resetPassword(token: string, newPassword: string): Promise<void>
   return request("/auth/password/reset", {
     method: "POST",
     body: JSON.stringify({ token, new_password: newPassword })
+  });
+}
+
+export function parseJobPosting(jobText: string, sourceUrl: string): Promise<AiJobDraft> {
+  return request("/ai/job-draft", {
+    method: "POST",
+    body: JSON.stringify({
+      job_text: jobText,
+      source_url: sourceUrl || null
+    })
   });
 }
 

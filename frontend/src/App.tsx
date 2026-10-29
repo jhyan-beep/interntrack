@@ -9,6 +9,7 @@ import {
   getCurrentUser,
   getStats,
   logout,
+  parseJobPosting,
   requestEmailVerification,
   verifyEmail,
   updateApplication
@@ -16,6 +17,7 @@ import {
 import AuthScreen from "./AuthScreen";
 import {
   STATUSES,
+  type AiJobDraft,
   type ApplicationInput,
   type ApplicationStats,
   type ApplicationStatus,
@@ -97,10 +99,12 @@ function StatusBadge({ status }: { status: ApplicationStatus }) {
 
 function ApplicationModal({
   application,
+  initialDraft,
   onClose,
   onSaved
 }: {
   application: InternshipApplication | null;
+  initialDraft: ApplicationInput | null;
   onClose: () => void;
   onSaved: (message: string) => Promise<void>;
 }) {
@@ -113,7 +117,7 @@ function ApplicationModal({
     location: application.location,
     source_url: application.source_url,
     notes: application.notes
-  } : { ...EMPTY_FORM });
+  } : initialDraft ? { ...initialDraft } : { ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -157,11 +161,12 @@ function ApplicationModal({
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="application-form-title">
         <div className="modal-header">
           <div>
-            <p className="eyebrow">Application details</p>
-            <h2 id="application-form-title">{application ? "Edit application" : "Add an application"}</h2>
+            <p className="eyebrow">{initialDraft ? "Review AI draft" : "Application details"}</p>
+            <h2 id="application-form-title">{application ? "Edit application" : initialDraft ? "Review before adding" : "Add an application"}</h2>
           </div>
           <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close dialog"><Icon name="close" /></button>
         </div>
+        {initialDraft && <p className="ai-review-note"><Icon name="spark" size={17} /> AI suggested these values. Check them against the original posting; missing or uncertain fields may be blank.</p>}
         <form onSubmit={handleSubmit}>
           <div className="form-grid">
             <label>Company<input required maxLength={120} value={form.company} onChange={(event) => setField("company", event.target.value)} placeholder="e.g. Stripe" /></label>
@@ -177,6 +182,66 @@ function ApplicationModal({
           <div className="modal-actions">
             <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : application ? "Save changes" : "Add application"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function AiImportModal({
+  onClose,
+  onDraft
+}: {
+  onClose: () => void;
+  onDraft: (draft: AiJobDraft) => void;
+}) {
+  const [jobText, setJobText] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setParsing(true);
+    setError("");
+    try {
+      onDraft(await parseJobPosting(jobText, sourceUrl));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create an AI draft.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal ai-import-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-import-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">AI-assisted entry</p><h2 id="ai-import-title">Turn a job post into a draft</h2></div>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close AI import"><Icon name="close" /></button>
+        </div>
+        <p className="ai-import-intro">Paste the posting and InternTrack will suggest the fields. Nothing is saved until you review the next form and choose <strong>Add application</strong>.</p>
+        <form onSubmit={handleSubmit}>
+          <label>Job posting URL <span>Optional</span><input type="url" maxLength={500} value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://company.com/jobs/..." /></label>
+          <label>Job description<textarea required minLength={100} maxLength={20_000} rows={12} value={jobText} onChange={(event) => setJobText(event.target.value)} placeholder="Paste the company, role, qualifications, location, and deadline…" /></label>
+          <p className="ai-privacy"><Icon name="spark" size={16} /> The description is sent to the server's configured AI provider for extraction. Review every suggested field before saving.</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button primary" disabled={parsing}>{parsing ? "Creating draft…" : "Generate draft"}</button>
           </div>
         </form>
       </section>
@@ -241,7 +306,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
   const [editing, setEditing] = useState<InternshipApplication | null>(null);
+  const [initialDraft, setInitialDraft] = useState<ApplicationInput | null>(null);
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -334,6 +401,7 @@ export default function App() {
   async function handleSaved(message: string) {
     setModalOpen(false);
     setEditing(null);
+    setInitialDraft(null);
     setToast(message);
     await loadDashboard();
   }
@@ -378,11 +446,38 @@ export default function App() {
 
   function openCreate() {
     setEditing(null);
+    setInitialDraft(null);
     setModalOpen(true);
   }
 
   function openEdit(application: InternshipApplication) {
     setEditing(application);
+    setInitialDraft(null);
+    setModalOpen(true);
+  }
+
+  function openAiImport() {
+    if (!user?.email_verified) {
+      setError("Verify your email before using AI import.");
+      return;
+    }
+    setError("");
+    setAiModalOpen(true);
+  }
+
+  function handleAiDraft(draft: AiJobDraft) {
+    setInitialDraft({
+      company: draft.company ?? "",
+      role: draft.role ?? "",
+      status: "saved",
+      application_date: today(),
+      deadline: draft.deadline,
+      location: draft.location,
+      source_url: draft.source_url,
+      notes: draft.notes
+    });
+    setEditing(null);
+    setAiModalOpen(false);
     setModalOpen(true);
   }
 
@@ -445,7 +540,7 @@ export default function App() {
         </section>
 
         <section className="applications-section" id="applications">
-          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions"><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions"><button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
 
           <div className="toolbar">
             <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
@@ -468,7 +563,8 @@ export default function App() {
       </main>
 
       <footer><span>InternTrack</span><p>Built to make the internship search feel manageable.</p></footer>
-      {modalOpen && <ApplicationModal application={editing} onClose={() => { setModalOpen(false); setEditing(null); }} onSaved={handleSaved} />}
+      {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
+      {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
       {accountOpen && <AccountDialog user={user} onClose={() => setAccountOpen(false)} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>

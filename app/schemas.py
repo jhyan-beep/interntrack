@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -110,6 +111,34 @@ class PaginatedApplications(BaseModel):
     page: int
     page_size: int
     pages: int
+
+
+AiDraftField = Literal["company", "role", "location", "deadline", "source_url", "notes"]
+
+
+class AiJobParseRequest(BaseModel):
+    job_text: str = Field(..., min_length=100, max_length=20_000)
+    source_url: str | None = Field(default=None, max_length=500)
+
+    @field_validator("source_url")
+    @classmethod
+    def source_url_must_be_http(cls, value: str | None) -> str | None:
+        return validate_source_url(value)
+
+
+class AiJobDraft(BaseModel):
+    company: str | None = Field(..., max_length=120)
+    role: str | None = Field(..., max_length=120)
+    location: str | None = Field(..., max_length=120)
+    deadline: date | None
+    source_url: str | None = Field(..., max_length=500)
+    notes: str | None = Field(..., max_length=1_500)
+    uncertain_fields: list[AiDraftField]
+
+    @field_validator("source_url")
+    @classmethod
+    def source_url_must_be_http(cls, value: str | None) -> str | None:
+        return validate_source_url(value)
 
 
 class UserCreate(BaseModel):
