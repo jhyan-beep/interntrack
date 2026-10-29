@@ -78,7 +78,7 @@ pub fn run() {
                 if let Some(child) = sidecar.take() {
                     let _ = child.kill();
                 }
-            }
+            };
         }
     });
 }
