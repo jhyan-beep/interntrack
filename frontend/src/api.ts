@@ -5,6 +5,7 @@ import type {
   AiJobDraft,
   InternshipApplication,
   PaginatedApplications,
+  ReminderSettings,
   SortBy,
   SortOrder,
   User
@@ -108,6 +109,19 @@ export function requestEmailVerification(): Promise<void> {
   return request("/auth/email/verification/request", { method: "POST" });
 }
 
+export function getReminderSettings(): Promise<ReminderSettings> {
+  return request("/reminders/settings");
+}
+
+export function updateReminderSettings(
+  settings: ReminderSettings
+): Promise<ReminderSettings> {
+  return request("/reminders/settings", {
+    method: "PATCH",
+    body: JSON.stringify(settings)
+  });
+}
+
 export function verifyEmail(token: string): Promise<User> {
   return request("/auth/email/verify", {
     method: "POST",
@@ -172,4 +186,3 @@ export async function downloadCsv(): Promise<void> {
   link.remove();
   URL.revokeObjectURL(url);
 }
-

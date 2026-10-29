@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     email_verification_expire_hours: int = Field(default=24, ge=1, le=168)
     password_reset_expire_minutes: int = Field(default=30, ge=5, le=120)
     email_worker_poll_seconds: int = Field(default=5, ge=1, le=60)
+    reminder_scan_interval_seconds: int = Field(default=300, ge=30, le=3_600)
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-6-luna"
     openai_timeout_seconds: int = Field(default=20, ge=5, le=60)
@@ -110,5 +111,4 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
-
 

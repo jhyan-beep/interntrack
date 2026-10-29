@@ -70,6 +70,11 @@ export interface User {
   created_at: string;
 }
 
+export interface ReminderSettings {
+  deadline_reminders_enabled: boolean;
+  deadline_reminder_days: number;
+  reminder_timezone: string;
+}
+
 export type SortBy = "deadline" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";
-

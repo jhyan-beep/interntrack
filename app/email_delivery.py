@@ -67,8 +67,14 @@ def password_reset_email(to_email: str, token: str) -> OutgoingEmail:
     )
 
 
-def enqueue_email(db: Session, email: OutgoingEmail) -> EmailOutbox:
+def enqueue_email(
+    db: Session,
+    email: OutgoingEmail,
+    *,
+    user_id: int | None = None,
+) -> EmailOutbox:
     message = EmailOutbox(
+        user_id=user_id,
         to_email=email.to_email,
         subject=email.subject,
         text_body=email.text_body,
@@ -143,4 +149,3 @@ def process_outbox_batch(batch_size: int = 20) -> int:
             db.add(message)
         db.commit()
         return len(messages)
-
