@@ -78,6 +78,15 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    product_events: Mapped[list["ProductEvent"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    beta_feedback: Mapped["BetaFeedback | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     @property
     def email_verified(self) -> bool:
@@ -224,4 +233,51 @@ class DeadlineReminderDelivery(Base):
     application: Mapped[InternshipApplication] = relationship(
         back_populates="deadline_reminder_deliveries"
     )
+
+
+class ProductEvent(Base):
+    __tablename__ = "product_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "event_name",
+            "event_date",
+            name="uq_product_events_user_name_date",
+        ),
+        Index("ix_product_events_name_date", "event_name", "event_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    event_name: Mapped[str] = mapped_column(String(50))
+    event_date: Mapped[date] = mapped_column(Date, default=date.today)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped[User] = relationship(back_populates="product_events")
+
+
+class BetaFeedback(Base):
+    __tablename__ = "beta_feedback"
+    __table_args__ = (
+        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_beta_feedback_rating"),
+        UniqueConstraint("user_id", name="uq_beta_feedback_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    rating: Mapped[int]
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+    user: Mapped[User] = relationship(back_populates="beta_feedback")
 

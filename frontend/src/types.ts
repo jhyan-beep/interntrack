@@ -76,5 +76,20 @@ export interface ReminderSettings {
   reminder_timezone: string;
 }
 
+export interface BetaProgress {
+  application_count: number;
+  email_verified: boolean;
+  ai_import_used: boolean;
+  reminders_enabled: boolean;
+  feedback_submitted: boolean;
+  activated: boolean;
+}
+
+export interface BetaFeedback {
+  rating: number;
+  comment: string | null;
+  updated_at: string;
+}
+
 export type SortBy = "deadline" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";

@@ -3,6 +3,8 @@ import type {
   ApplicationStats,
   ApplicationStatus,
   AiJobDraft,
+  BetaFeedback,
+  BetaProgress,
   InternshipApplication,
   PaginatedApplications,
   ReminderSettings,
@@ -78,6 +80,21 @@ export function getStats(): Promise<ApplicationStats> {
 
 export function getCurrentUser(): Promise<User> {
   return request("/auth/me");
+}
+
+export function recordBetaSession(): Promise<void> {
+  return request("/beta/session", { method: "POST" });
+}
+
+export function getBetaProgress(): Promise<BetaProgress> {
+  return request("/beta/progress");
+}
+
+export function submitBetaFeedback(rating: number, comment: string): Promise<BetaFeedback> {
+  return request("/beta/feedback", {
+    method: "PUT",
+    body: JSON.stringify({ rating, comment: comment || null })
+  });
 }
 
 export function register(email: string, password: string): Promise<User> {

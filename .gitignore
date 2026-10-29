@@ -5,6 +5,7 @@
 __pycache__/
 *.py[cod]
 *.db
+.pg-ci-test*
 .pytest_cache/
 .coverage
 htmlcov/
