@@ -35,6 +35,7 @@ from app.models import (
     InternshipApplication,
     User,
 )
+from app.observability import configure_logging
 from app.schemas import (
     ApplicationCreate,
     ApplicationRead,
@@ -61,12 +62,13 @@ from app.security import (
 )
 
 settings = get_settings()
+configure_logging(settings)
 
 
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.4.0",
+    version="2.5.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",

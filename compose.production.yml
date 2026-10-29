@@ -1,0 +1,126 @@
+name: interntrack-production
+
+x-app-environment: &app-environment
+  ENVIRONMENT: production
+  DATABASE_URL: postgresql+psycopg://interntrack:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/interntrack
+  APP_BASE_URL: https://${APP_DOMAIN:?Set APP_DOMAIN}
+  CORS_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN}
+  ALLOWED_HOSTS: ${APP_DOMAIN:?Set APP_DOMAIN}
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
+    environment: *app-environment
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - backend
+
+  email-worker:
+    build: .
+    command: ["python", "-m", "app.email_worker"]
+    restart: unless-stopped
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
+    environment: *app-environment
+    depends_on:
+      api:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      disable: true
+    networks:
+      - backend
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: interntrack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: interntrack
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interntrack -d interntrack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+
+  backup:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    environment:
+      PGHOST: db
+      PGUSER: interntrack
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      PGDATABASE: interntrack
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - ./ops:/ops:ro
+      - ./backups:/backups
+    command: ["sh", "/ops/backup_postgres.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  restore:
+    image: postgres:16-alpine
+    profiles: ["ops"]
+    environment:
+      PGHOST: db
+      PGUSER: interntrack
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      PGDATABASE: interntrack
+      BACKUP_FILE: ${BACKUP_FILE:-}
+      RESTORE_CONFIRMATION: ${RESTORE_CONFIRMATION:-}
+    volumes:
+      - ./ops:/ops:ro
+      - ./backups:/backups:ro
+    command: ["sh", "/ops/restore_postgres.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:

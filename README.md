@@ -22,12 +22,15 @@ InternTrack is a responsive web application for tracking software engineering in
 - Login and registration rate limiting
 - Origin-based CSRF protection and strict security response headers
 - Liveness and database readiness checks
+- Correlated request IDs and production JSON logs
 - Spreadsheet-safe CSV exports
 - Alembic database migrations
 - PostgreSQL support with SQLAlchemy
 - Pydantic schemas for request and response validation
 - Pytest coverage for the main API workflows
 - Docker Compose setup for API, email worker, and PostgreSQL
+- Production Compose stack with Caddy-managed HTTPS and non-root containers
+- Guarded PostgreSQL backup and restore commands
 - GitHub Actions CI
 
 ## Tech Stack
@@ -44,6 +47,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Alembic
 - PyJWT and Argon2 password hashing
 - OpenAI Responses API with Structured Outputs
+- Caddy
 
 ## Project Structure
 
@@ -58,6 +62,7 @@ app/
   email_worker.py    Background outbox processor
   main.py        FastAPI routes
   models.py      SQLAlchemy models
+  observability.py  JSON logging and per-request correlation context
   reminders.py   Deadline reminder selection, templates, and deduplication
   schemas.py     Pydantic request and response schemas
   security.py    Rate limiting, origin checks, and response hardening
@@ -71,7 +76,13 @@ tests/
   test_applications.py
   test_auth.py
   test_email.py
+  test_observability.py
   test_reminders.py
+ops/
+  backup_postgres.sh   Atomic PostgreSQL custom-format backup
+  restore_postgres.sh  Confirmation-guarded database restore
+compose.production.yml Production API, worker, database, proxy, and ops services
+Caddyfile              Automatic HTTPS reverse proxy
   test_security.py
 ```
 
@@ -189,6 +200,8 @@ SECRET_KEY=<unique-random-value-with-at-least-32-characters>
 CORS_ORIGINS=https://app.example.com
 ALLOWED_HOSTS=app.example.com
 APP_BASE_URL=https://app.example.com
+LOG_LEVEL=INFO
+LOG_FORMAT=json
 EMAIL_DELIVERY_MODE=smtp
 EMAIL_FROM=InternTrack <no-reply@example.com>
 SMTP_HOST=smtp.example.com
@@ -205,6 +218,54 @@ OPENAI_TIMEOUT_SECONDS=20
 Production mode enables Secure cookies and HSTS, requires an approved `Origin` header for state-changing requests, requires HTTPS action links and SMTP delivery, and disables the interactive API documentation. Terminate HTTPS at the hosting platform or reverse proxy and configure it to preserve the original host and scheme. Store SMTP credentials in the hosting platform's secret manager; never commit them to Git.
 
 The built-in authentication limiter is intentionally small and process-local so the project stays interview-friendly. It protects a single container; a multi-replica commercial deployment should enforce an additional shared limit at the load balancer, API gateway, or Redis layer.
+
+## Production deployment
+
+The production Compose stack runs the API and email worker as a non-root user, keeps PostgreSQL off public host ports, mounts the application containers read-only, and puts Caddy in front of the API for automatic HTTPS.
+
+1. Point the chosen domain's DNS records to the server and allow inbound ports `80` and `443`.
+2. Create the production environment file and replace every placeholder. Use a URL-safe PostgreSQL password because it is embedded in `DATABASE_URL` by Compose.
+
+```bash
+cp .env.production.example .env.production
+```
+
+3. Start the stack:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml up -d --build
+docker compose --env-file .env.production -f compose.production.yml ps
+```
+
+4. Inspect structured logs using request IDs returned in the `X-Request-ID` response header:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml logs -f api email-worker
+```
+
+The API container runs `alembic upgrade head` before serving traffic. For multiple API replicas, run migrations as a single release step instead of allowing every replica to migrate concurrently. `.env.production` is ignored by Git and must remain in the deployment platform's secret storage or on the server with restricted permissions.
+
+## Backups and restore drills
+
+Create an atomic PostgreSQL custom-format backup in the ignored local `backups/` directory:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml --profile ops run --rm backup
+```
+
+Schedule that exact command with the host or deployment platform scheduler, then copy backups to encrypted off-site storage. `BACKUP_RETENTION_DAYS` controls local cleanup and defaults to seven days. A backup is not considered reliable until a restore drill has succeeded.
+
+Restore is intentionally guarded and destructive: it replaces matching objects in the configured `interntrack` database. Stop the API and worker, select a backup path inside `/backups`, and supply the exact confirmation value:
+
+```bash
+docker compose --env-file .env.production -f compose.production.yml stop api email-worker
+BACKUP_FILE=/backups/interntrack_YYYYMMDDTHHMMSSZ.dump \
+RESTORE_CONFIRMATION=restore:interntrack \
+docker compose --env-file .env.production -f compose.production.yml --profile ops run --rm restore
+docker compose --env-file .env.production -f compose.production.yml start api email-worker
+```
+
+Practice restores against a disposable environment before using the command on production data.
 
 ## AI-assisted import
 
@@ -258,9 +319,9 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs for reviewable job-posting imports, opt-in deadline reminders, email verification, single-use password recovery, durable background delivery, per-user authorization, Docker, Alembic migrations, and PostgreSQL-backed CI.
+Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs, timezone-aware deadline reminders, transactional email, correlated JSON logging, non-root containers, automated database backup tooling, Alembic migrations, and PostgreSQL-backed CI.
 
 ## Product Roadmap
 
-The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, and reviewable AI-assisted application entry suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, and billing.
+The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, structured logs, HTTPS deployment configuration, and guarded backup tooling suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing.
 
