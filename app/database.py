@@ -1,7 +1,7 @@
 from functools import lru_cache
-from typing import Generator
+from typing import Generator, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     app_name: str = "InternTrack"
     environment: str = "development"
     database_url: str = "postgresql+psycopg://interntrack:interntrack@localhost:5432/interntrack"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:8000,http://127.0.0.1:8000"
+    )
     secret_key: str = "development-only-change-me-32-chars"
     session_cookie_name: str = "interntrack_session"
     session_expire_hours: int = 168
@@ -22,6 +24,17 @@ class Settings(BaseSettings):
     auth_rate_limit_window_seconds: int = Field(default=60, ge=1)
     auth_rate_limit_per_ip: int = Field(default=20, ge=1)
     auth_rate_limit_per_identity: int = Field(default=10, ge=1)
+    app_base_url: str = "http://localhost:8000"
+    email_delivery_mode: Literal["console", "smtp"] = "console"
+    email_from: str = "InternTrack <no-reply@localhost>"
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65_535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_starttls: bool = True
+    email_verification_expire_hours: int = Field(default=24, ge=1, le=168)
+    password_reset_expire_minutes: int = Field(default=30, ge=5, le=120)
+    email_worker_poll_seconds: int = Field(default=5, ge=1, le=60)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -35,6 +48,12 @@ class Settings(BaseSettings):
             self.secret_key in unsafe_secrets or len(self.secret_key) < 32
         ):
             raise ValueError("SECRET_KEY must be a unique value of at least 32 characters")
+        if self.environment == "production" and self.email_delivery_mode != "smtp":
+            raise ValueError("EMAIL_DELIVERY_MODE must be smtp in production")
+        if self.email_delivery_mode == "smtp" and not self.smtp_host:
+            raise ValueError("SMTP_HOST is required when EMAIL_DELIVERY_MODE is smtp")
+        if self.environment == "production" and not self.app_base_url.startswith("https://"):
+            raise ValueError("APP_BASE_URL must use https in production")
         return self
 
     @property
@@ -83,4 +102,5 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
 

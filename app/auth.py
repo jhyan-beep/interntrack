@@ -38,12 +38,13 @@ def verify_login_password(password: str, user: User | None) -> bool:
     return user is not None and password_is_valid
 
 
-def create_session_token(user_id: int) -> str:
+def create_session_token(user: User) -> str:
     issued_at = datetime.now(timezone.utc)
     expires_at = issued_at + timedelta(hours=settings.session_expire_hours)
     return jwt.encode(
         {
-            "sub": str(user_id),
+            "sub": str(user.id),
+            "ver": user.session_version,
             "iat": issued_at,
             "exp": expires_at,
             "iss": settings.jwt_issuer,
@@ -54,10 +55,10 @@ def create_session_token(user_id: int) -> str:
     )
 
 
-def set_session_cookie(response: Response, user_id: int) -> None:
+def set_session_cookie(response: Response, user: User) -> None:
     response.set_cookie(
         key=settings.session_cookie_name,
-        value=create_session_token(user_id),
+        value=create_session_token(user),
         max_age=settings.session_expire_hours * 60 * 60,
         httponly=True,
         secure=settings.environment == "production",
@@ -94,14 +95,15 @@ def get_current_user(
             algorithms=[ALGORITHM],
             audience=settings.jwt_audience,
             issuer=settings.jwt_issuer,
-            options={"require": ["sub", "iat", "exp", "iss", "aud"]},
+            options={"require": ["sub", "ver", "iat", "exp", "iss", "aud"]},
         )
         user_id = int(payload.get("sub", ""))
+        session_version = int(payload.get("ver", ""))
     except (InvalidTokenError, TypeError, ValueError):
         raise credentials_error from None
 
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or user.session_version != session_version:
         raise credentials_error
     return user
 
@@ -111,3 +113,4 @@ def get_user_by_email(db: Session, email: str) -> User | None:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+

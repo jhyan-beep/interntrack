@@ -31,6 +31,7 @@ async def test_register_sets_http_only_session_cookie(anonymous_client: AsyncCli
 
     assert response.status_code == 201
     assert response.json()["email"] == "student@example.com"
+    assert response.json()["email_verified"] is False
     cookie = response.headers["set-cookie"].lower()
     assert "interntrack_session=" in cookie
     assert "httponly" in cookie
@@ -102,6 +103,7 @@ async def test_invalid_session_claims_are_rejected(
     now = datetime.now(timezone.utc)
     payload = {
         "sub": "1",
+        "ver": 1,
         "iat": now,
         "exp": now + timedelta(hours=1),
         "iss": settings.jwt_issuer,
@@ -183,3 +185,4 @@ async def test_delete_account_clears_session(client: AsyncClient) -> None:
 
     assert response.status_code == 204
     assert me.status_code == 401
+

@@ -45,7 +45,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(message, response.status);
   }
 
-  if (response.status === 204) return undefined as T;
+  if (response.status === 204 || response.headers.get("Content-Length") === "0") {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
 
@@ -101,6 +103,31 @@ export function deleteAccount(password: string): Promise<void> {
   });
 }
 
+export function requestEmailVerification(): Promise<void> {
+  return request("/auth/email/verification/request", { method: "POST" });
+}
+
+export function verifyEmail(token: string): Promise<User> {
+  return request("/auth/email/verify", {
+    method: "POST",
+    body: JSON.stringify({ token })
+  });
+}
+
+export function forgotPassword(email: string): Promise<void> {
+  return request("/auth/password/forgot", {
+    method: "POST",
+    body: JSON.stringify({ email })
+  });
+}
+
+export function resetPassword(token: string, newPassword: string): Promise<void> {
+  return request("/auth/password/reset", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword })
+  });
+}
+
 export function createApplication(input: ApplicationInput): Promise<InternshipApplication> {
   return request("/applications", { method: "POST", body: JSON.stringify(input) });
 }
@@ -134,3 +161,4 @@ export async function downloadCsv(): Promise<void> {
   link.remove();
   URL.revokeObjectURL(url);
 }
+

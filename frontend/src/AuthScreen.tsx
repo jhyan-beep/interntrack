@@ -1,25 +1,45 @@
 import { type FormEvent, useState } from "react";
-import { login, register } from "./api";
+import { forgotPassword, login, register, resetPassword } from "./api";
 import type { User } from "./types";
 
 export default function AuthScreen({
-  onAuthenticated
+  onAuthenticated,
+  notice = ""
 }: {
   onAuthenticated: (user: User) => void;
+  notice?: string;
 }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const initialResetToken = new URLSearchParams(window.location.search).get("reset_token") ?? "";
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "reset">(
+    initialResetToken ? "reset" : "login"
+  );
+  const [resetToken] = useState(initialResetToken);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
+    setMessage("");
     try {
-      const user = mode === "login" ? await login(email, password) : await register(email, password);
-      onAuthenticated(user);
+      if (mode === "forgot") {
+        await forgotPassword(email);
+        setMessage("If that account exists, a password reset email is on its way.");
+        setMode("login");
+      } else if (mode === "reset") {
+        await resetPassword(resetToken, password);
+        window.history.replaceState({}, "", window.location.pathname);
+        setMessage("Password updated. Sign in with your new password.");
+        setPassword("");
+        setMode("login");
+      } else {
+        const user = mode === "login" ? await login(email, password) : await register(email, password);
+        onAuthenticated(user);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not continue. Please try again.");
     } finally {
@@ -30,7 +50,13 @@ export default function AuthScreen({
   function switchMode() {
     setMode((current) => current === "login" ? "register" : "login");
     setError("");
+    setMessage("");
   }
+
+  const isLogin = mode === "login";
+  const isRegister = mode === "register";
+  const isForgot = mode === "forgot";
+  const isReset = mode === "reset";
 
   return (
     <main className="auth-shell">
@@ -53,21 +79,24 @@ export default function AuthScreen({
 
       <section className="auth-form-side">
         <div className="auth-card">
-          <p className="eyebrow">{mode === "login" ? "Welcome back" : "Create your workspace"}</p>
-          <h2>{mode === "login" ? "Sign in to InternTrack" : "Start tracking smarter"}</h2>
+          <p className="eyebrow">{isLogin ? "Welcome back" : isRegister ? "Create your workspace" : "Account recovery"}</p>
+          <h2>{isLogin ? "Sign in to InternTrack" : isRegister ? "Start tracking smarter" : isForgot ? "Reset your password" : "Choose a new password"}</h2>
           <p className="auth-subtitle">
-            {mode === "login" ? "Your next opportunity is waiting." : "Free to start. No credit card required."}
+            {isLogin ? "Your next opportunity is waiting." : isRegister ? "Free to start. No credit card required." : isForgot ? "We will send a secure reset link if the account exists." : "Use at least 8 characters for your new password."}
           </p>
           <form onSubmit={handleSubmit}>
-            <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
-            <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} required minLength={mode === "register" ? 8 : 1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "register" ? "At least 8 characters" : "Your password"} /></label>
+            {!isReset && <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>}
+            {!isForgot && <label>{isReset ? "New password" : "Password"}<input type="password" autoComplete={isLogin ? "current-password" : "new-password"} required minLength={isRegister || isReset ? 8 : 1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isRegister || isReset ? "At least 8 characters" : "Your password"} /></label>}
+            {isLogin && <button className="auth-forgot" type="button" onClick={() => { setMode("forgot"); setError(""); setMessage(""); }}>Forgot password?</button>}
+            {(notice || message) && <p className="form-success" role="status">{message || notice}</p>}
             {error && <p className="form-error" role="alert">{error}</p>}
-            <button className="button primary auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}</button>
+            <button className="button primary auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : isLogin ? "Sign in" : isRegister ? "Create account" : isForgot ? "Send reset link" : "Update password"}</button>
           </form>
-          <p className="auth-switch">{mode === "login" ? "New to InternTrack?" : "Already have an account?"} <button type="button" onClick={switchMode}>{mode === "login" ? "Create an account" : "Sign in"}</button></p>
+          <p className="auth-switch">{isLogin ? "New to InternTrack?" : isRegister ? "Already have an account?" : "Remembered your password?"} <button type="button" onClick={isForgot || isReset ? () => { setMode("login"); setError(""); } : switchMode}>{isLogin ? "Create an account" : "Sign in"}</button></p>
           <p className="auth-legal">By continuing, you agree to keep your account secure. Your password is stored as a one-way hash.</p>
         </div>
       </section>
     </main>
   );
 }
+
