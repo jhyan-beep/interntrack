@@ -60,6 +60,7 @@ app/
   beta_metrics.py  Aggregate beta report CLI without emails or job content
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
+  desktop.py     Local SQLite setup, migrations, and packaged API entrypoint
   email_delivery.py  Email templates, outbox queue, SMTP, and retry handling
   email_tokens.py    Single-use verification and password-reset tokens
   email_worker.py    Background outbox processor
@@ -74,6 +75,10 @@ frontend/
     api.ts        Typed API client
     App.tsx       Dashboard and application workflows
     styles.css    Responsive interface styles
+desktop/
+  scripts/        Reproducible PyInstaller and Windows build scripts
+  src-tauri/      Rust desktop shell and NSIS installer configuration
+  ui/             Lightweight startup screen
 tests/
   conftest.py
   test_applications.py
@@ -97,6 +102,7 @@ Caddyfile              Automatic HTTPS reverse proxy
 | GET | `/health` | Health check |
 | GET | `/health/live` | Process liveness check |
 | GET | `/health/ready` | Database readiness check |
+| GET | `/runtime` | Report web/desktop mode and optional feature availability |
 | POST | `/auth/register` | Create an account and session |
 | POST | `/auth/login` | Sign in |
 | POST | `/auth/logout` | Sign out |
@@ -187,6 +193,28 @@ pnpm dev
 ```
 
 Open `http://localhost:5173`. Vite proxies API requests to FastAPI on port `8000`.
+
+## Build the Windows Desktop App
+
+The desktop edition runs the same React and FastAPI product entirely on the user's computer. A Tauri shell starts a packaged Python sidecar on loopback, Alembic migrates a per-user SQLite database, and the UI is served from that local process. No cloud server or PostgreSQL installation is required for desktop users.
+
+Desktop data is stored in Tauri's per-user local app-data directory. The generated session secret and `interntrack.db` stay there across upgrades. The API only listens on `127.0.0.1`.
+
+To build the installer on Windows, install Python 3.12, Node.js, pnpm, Rust, and the Tauri Windows prerequisites, then run:
+
+```powershell
+.\desktop\scripts\build_windows.ps1
+```
+
+The NSIS setup executable is created under:
+
+```text
+desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
+```
+
+Pull requests that touch desktop runtime files also run the `Windows Desktop` workflow and upload the setup executable as a GitHub Actions artifact.
+
+The first desktop release intentionally focuses on offline CRUD, filtering, statistics, and CSV export. Email verification, password-reset email, and cloud reminders are disabled in desktop mode. AI import will be added as an explicit bring-your-own-key setting so no provider secret is embedded in the installer.
 
 ## Run Tests
 
@@ -339,6 +367,8 @@ Supported statuses:
 ## Example Resume Bullet
 
 Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs, timezone-aware reminders, privacy-conscious activation analytics, transactional email, JSON logging, non-root containers, Alembic migrations, and PostgreSQL-backed CI.
+
+Packaged InternTrack as a local-first Windows application with Tauri, PyInstaller, FastAPI, SQLite, automated migrations, process lifecycle management, and a GitHub Actions pipeline that produces an installable NSIS artifact.
 
 ## Product Roadmap
 

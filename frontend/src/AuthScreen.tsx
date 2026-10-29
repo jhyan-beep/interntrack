@@ -4,10 +4,12 @@ import type { User } from "./types";
 
 export default function AuthScreen({
   onAuthenticated,
-  notice = ""
+  notice = "",
+  desktopMode = false
 }: {
   onAuthenticated: (user: User) => void;
   notice?: string;
+  desktopMode?: boolean;
 }) {
   const initialResetToken = new URLSearchParams(window.location.search).get("reset_token") ?? "";
   const [mode, setMode] = useState<"login" | "register" | "forgot" | "reset">(
@@ -82,21 +84,20 @@ export default function AuthScreen({
           <p className="eyebrow">{isLogin ? "Welcome back" : isRegister ? "Create your workspace" : "Account recovery"}</p>
           <h2>{isLogin ? "Sign in to InternTrack" : isRegister ? "Start tracking smarter" : isForgot ? "Reset your password" : "Choose a new password"}</h2>
           <p className="auth-subtitle">
-            {isLogin ? "Your next opportunity is waiting." : isRegister ? "Free to start. No credit card required." : isForgot ? "We will send a secure reset link if the account exists." : "Use at least 8 characters for your new password."}
+            {isLogin ? "Your next opportunity is waiting." : isRegister ? (desktopMode ? "Your data stays on this computer." : "Free to start. No credit card required.") : isForgot ? "We will send a secure reset link if the account exists." : "Use at least 8 characters for your new password."}
           </p>
           <form onSubmit={handleSubmit}>
             {!isReset && <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>}
             {!isForgot && <label>{isReset ? "New password" : "Password"}<input type="password" autoComplete={isLogin ? "current-password" : "new-password"} required minLength={isRegister || isReset ? 8 : 1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isRegister || isReset ? "At least 8 characters" : "Your password"} /></label>}
-            {isLogin && <button className="auth-forgot" type="button" onClick={() => { setMode("forgot"); setError(""); setMessage(""); }}>Forgot password?</button>}
+            {isLogin && !desktopMode && <button className="auth-forgot" type="button" onClick={() => { setMode("forgot"); setError(""); setMessage(""); }}>Forgot password?</button>}
             {(notice || message) && <p className="form-success" role="status">{message || notice}</p>}
             {error && <p className="form-error" role="alert">{error}</p>}
             <button className="button primary auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait…" : isLogin ? "Sign in" : isRegister ? "Create account" : isForgot ? "Send reset link" : "Update password"}</button>
           </form>
           <p className="auth-switch">{isLogin ? "New to InternTrack?" : isRegister ? "Already have an account?" : "Remembered your password?"} <button type="button" onClick={isForgot || isReset ? () => { setMode("login"); setError(""); } : switchMode}>{isLogin ? "Create an account" : "Sign in"}</button></p>
-          <p className="auth-legal">By continuing, you agree to keep your account secure. Your password is stored as a one-way hash.</p>
+          <p className="auth-legal">{desktopMode ? "InternTrack stores your account and applications locally. Your password is stored as a one-way hash." : "By continuing, you agree to keep your account secure. Your password is stored as a one-way hash."}</p>
         </div>
       </section>
     </main>
   );
 }
-
