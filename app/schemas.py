@@ -161,6 +161,12 @@ class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RuntimeInfo(BaseModel):
+    mode: Literal["web", "desktop"]
+    ai_available: bool
+    email_features_available: bool
+
+
 class ReminderSettingsRead(BaseModel):
     deadline_reminders_enabled: bool
     deadline_reminder_days: int

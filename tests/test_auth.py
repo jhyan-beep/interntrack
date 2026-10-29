@@ -38,6 +38,41 @@ async def test_register_sets_http_only_session_cookie(anonymous_client: AsyncCli
     assert "samesite=lax" in cookie
 
 
+async def test_desktop_registration_is_verified_without_email(
+    anonymous_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "desktop")
+    monkeypatch.setattr("app.main.hash_password", lambda _password: "test-password-hash")
+
+    response = await anonymous_client.post(
+        "/auth/register",
+        json={"email": "desktop@example.com", "password": "securepass123"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["email_verified"] is True
+
+
+async def test_runtime_reports_desktop_capabilities(
+    anonymous_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "desktop")
+    monkeypatch.setattr(settings, "openai_api_key", None)
+
+    response = await anonymous_client.get("/runtime")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "mode": "desktop",
+        "ai_available": False,
+        "email_features_available": False,
+    }
+
+
 async def test_duplicate_email_is_case_insensitive(anonymous_client: AsyncClient) -> None:
     await register(anonymous_client, "student@example.com")
 
@@ -185,4 +220,3 @@ async def test_delete_account_clears_session(client: AsyncClient) -> None:
 
     assert response.status_code == 204
     assert me.status_code == 401
-

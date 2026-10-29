@@ -8,6 +8,7 @@ import {
   getApplications,
   getBetaProgress,
   getCurrentUser,
+  getRuntimeInfo,
   getReminderSettings,
   getStats,
   logout,
@@ -29,6 +30,7 @@ import {
   type ApplicationStatus,
   type InternshipApplication,
   type ReminderSettings,
+  type RuntimeInfo,
   type SortBy,
   type SortOrder,
   type User
@@ -258,11 +260,13 @@ function AiImportModal({
 
 function AccountDialog({
   user,
+  desktopMode,
   onClose,
   onSignedOut,
   onDeleted
 }: {
   user: User;
+  desktopMode: boolean;
   onClose: () => void;
   onSignedOut: () => Promise<void>;
   onDeleted: () => void;
@@ -276,6 +280,10 @@ function AccountDialog({
   const [reminderSaved, setReminderSaved] = useState(false);
 
   useEffect(() => {
+    if (desktopMode) {
+      setReminderBusy(false);
+      return;
+    }
     let active = true;
     getReminderSettings()
       .then((settings) => active && setReminders({
@@ -285,7 +293,7 @@ function AccountDialog({
       .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load reminder settings."))
       .finally(() => active && setReminderBusy(false));
     return () => { active = false; };
-  }, []);
+  }, [desktopMode]);
 
   async function handleReminderSubmit(event: FormEvent) {
     event.preventDefault();
@@ -324,8 +332,9 @@ function AccountDialog({
           <div><p className="eyebrow">Your account</p><h2 id="account-title">Account settings</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
         </div>
-        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.</small></div></div>
-        {!confirmingDelete && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
+        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{desktopMode ? "Local account · Data stored on this computer." : `${user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.`}</small></div></div>
+        {!confirmingDelete && desktopMode && <div className="reminder-settings"><div><h3>Local-first workspace</h3><p>Applications are stored in a private SQLite database on this computer. Cloud email reminders are not enabled in this desktop release.</p></div></div>}
+        {!confirmingDelete && !desktopMode && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
           <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>
           {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
             <label className="toggle-row">
@@ -453,6 +462,7 @@ function BetaFeedbackDialog({
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeInfo>({ mode: "web", ai_available: false, email_features_available: true });
   const [authLoading, setAuthLoading] = useState(true);
   const [applications, setApplications] = useState<InternshipApplication[]>([]);
   const [stats, setStats] = useState<ApplicationStats>(EMPTY_STATS);
@@ -475,9 +485,15 @@ export default function App() {
   const [pagination, setPagination] = useState({ total: 0, pages: 0 });
   const [betaProgress, setBetaProgress] = useState<BetaProgress | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const desktopMode = runtime.mode === "desktop";
 
   useEffect(() => {
     async function initializeAuth() {
+      try {
+        setRuntime(await getRuntimeInfo());
+      } catch {
+        // Keep the web defaults when talking to an older or unavailable API.
+      }
       const params = new URLSearchParams(window.location.search);
       const verificationToken = params.get("verify_token");
       const resetToken = params.get("reset_token");
@@ -531,7 +547,7 @@ export default function App() {
       const [nextApplications, nextStats, nextBetaProgress] = await Promise.all([
         getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page }),
         getStats(),
-        getBetaProgress()
+        desktopMode ? Promise.resolve(null) : getBetaProgress()
       ]);
       setApplications(nextApplications.items);
       setPagination({ total: nextApplications.total, pages: nextApplications.pages });
@@ -544,11 +560,11 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user]);
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user, desktopMode]);
 
   useEffect(() => { if (user) void loadApplications(); }, [loadApplications, user]);
   useEffect(() => { if (user) void loadDashboard(); }, [user]);
-  useEffect(() => { if (user) void recordBetaSession().catch(() => undefined); }, [user?.id]);
+  useEffect(() => { if (user && !desktopMode) void recordBetaSession().catch(() => undefined); }, [user?.id, desktopMode]);
 
   useEffect(() => {
     if (!toast) return;
@@ -659,7 +675,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen notice={authNotice} onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); setAuthNotice(""); }} />;
+    return <AuthScreen desktopMode={desktopMode} notice={authNotice} onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); setAuthNotice(""); }} />;
   }
 
   return (
@@ -682,7 +698,7 @@ export default function App() {
 
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => void loadDashboard()}>Try again</button></div>}
 
-        {!user.email_verified && <div className="verification-banner" role="status"><div><strong>Verify your email</strong><span>Confirm your address so password recovery and future reminders reach you.</span></div><button className="button secondary compact" disabled={verificationBusy} onClick={() => void handleRequestVerification()}>{verificationBusy ? "Sending…" : "Send verification email"}</button></div>}
+        {!desktopMode && !user.email_verified && <div className="verification-banner" role="status"><div><strong>Verify your email</strong><span>Confirm your address so password recovery and future reminders reach you.</span></div><button className="button secondary compact" disabled={verificationBusy} onClick={() => void handleRequestVerification()}>{verificationBusy ? "Sending…" : "Send verification email"}</button></div>}
 
         {betaProgress && <BetaLaunchpad progress={betaProgress} onAdd={openCreate} onAiImport={openAiImport} onEnableReminders={() => setAccountOpen(true)} onVerify={() => void handleRequestVerification()} onFeedback={() => setFeedbackOpen(true)} />}
 
@@ -713,7 +729,7 @@ export default function App() {
         </section>
 
         <section className="applications-section" id="applications">
-          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions"><button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
 
           <div className="toolbar">
             <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
@@ -735,10 +751,10 @@ export default function App() {
         </section>
       </main>
 
-      <footer><span>InternTrack</span><p>Built to make the internship search feel manageable.</p></footer>
+      <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
-      {accountOpen && <AccountDialog user={user} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>

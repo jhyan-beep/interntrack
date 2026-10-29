@@ -70,6 +70,12 @@ export interface User {
   created_at: string;
 }
 
+export interface RuntimeInfo {
+  mode: "web" | "desktop";
+  ai_available: boolean;
+  email_features_available: boolean;
+}
+
 export interface ReminderSettings {
   deadline_reminders_enabled: boolean;
   deadline_reminder_days: number;

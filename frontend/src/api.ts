@@ -8,6 +8,7 @@ import type {
   InternshipApplication,
   PaginatedApplications,
   ReminderSettings,
+  RuntimeInfo,
   SortBy,
   SortOrder,
   User
@@ -80,6 +81,10 @@ export function getStats(): Promise<ApplicationStats> {
 
 export function getCurrentUser(): Promise<User> {
   return request("/auth/me");
+}
+
+export function getRuntimeInfo(): Promise<RuntimeInfo> {
+  return request("/runtime");
 }
 
 export function recordBetaSession(): Promise<void> {

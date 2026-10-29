@@ -12,6 +12,13 @@ htmlcov/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/*
+!desktop/src-tauri/binaries/.gitkeep
+build/
+dist/
+.desktop-smoke/
 backups/
 .DS_Store
 .idea/

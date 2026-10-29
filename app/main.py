@@ -54,6 +54,7 @@ from app.schemas import (
     PasswordResetRequest,
     ReminderSettingsRead,
     ReminderSettingsUpdate,
+    RuntimeInfo,
     UserCreate,
     UserLogin,
     UserRead,
@@ -72,7 +73,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.6.0",
+    version="2.7.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -112,6 +113,16 @@ def readiness_check(db: Annotated[Session, Depends(get_db)]) -> dict[str, str]:
     return {"status": "ready"}
 
 
+@app.get("/runtime", response_model=RuntimeInfo)
+def runtime_info() -> RuntimeInfo:
+    desktop_mode = settings.environment == "desktop"
+    return RuntimeInfo(
+        mode="desktop" if desktop_mode else "web",
+        ai_available=settings.openai_api_key is not None,
+        email_features_available=not desktop_mode,
+    )
+
+
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(
     user_in: UserCreate,
@@ -126,13 +137,17 @@ def register(
     user = User(
         email=normalize_email(user_in.email),
         password_hash=hash_password(user_in.password),
+        email_verified_at=datetime.now(timezone.utc)
+        if settings.environment == "desktop"
+        else None,
     )
     db.add(user)
     try:
         db.flush()
         record_product_event(db, user.id, "account_created")
-        email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
-        enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
+        if settings.environment != "desktop":
+            email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
+            enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -170,6 +185,12 @@ def request_email_verification(
     db: Annotated[Session, Depends(get_db)],
 ) -> Response:
     enforce_auth_rate_limit(request, "email_verification", user.email)
+    if settings.environment == "desktop":
+        if not user.email_verified:
+            user.email_verified_at = datetime.now(timezone.utc)
+            db.add(user)
+            db.commit()
+        return Response(status_code=status.HTTP_202_ACCEPTED)
     if not user.email_verified:
         email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
         enqueue_email(db, verification_email(user.email, email_token), user_id=user.id)
@@ -207,6 +228,11 @@ def forgot_password(
 ) -> Response:
     normalized_email = normalize_email(request_in.email)
     enforce_auth_rate_limit(request, "password_forgot", normalized_email)
+    if settings.environment == "desktop":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Password reset email is unavailable in the desktop app",
+        )
     user = get_user_by_email(db, normalized_email)
     if user is not None:
         email_token = issue_email_token(db, user, EmailTokenPurpose.RESET_PASSWORD)
@@ -265,6 +291,11 @@ def update_reminder_settings(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
+    if settings.environment == "desktop" and reminder_in.deadline_reminders_enabled is True:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email reminders require the hosted web app",
+        )
     if reminder_in.deadline_reminders_enabled is True and not user.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
