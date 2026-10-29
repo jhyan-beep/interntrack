@@ -125,6 +125,7 @@ class UserLogin(BaseModel):
 class UserRead(BaseModel):
     id: int
     email: str
+    email_verified: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -132,4 +133,17 @@ class UserRead(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
+
+
+class EmailTokenRequest(BaseModel):
+    token: str = Field(..., min_length=20, max_length=256)
+
+
+class PasswordForgotRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetRequest(EmailTokenRequest):
+    new_password: str = Field(..., min_length=8, max_length=128)
+
 

@@ -18,6 +18,17 @@ class ApplicationStatus(str, Enum):
     WITHDRAWN = "withdrawn"
 
 
+class EmailTokenPurpose(str, Enum):
+    VERIFY_EMAIL = "verify_email"
+    RESET_PASSWORD = "reset_password"
+
+
+class EmailOutboxStatus(str, Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -28,11 +39,87 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    session_version: Mapped[int] = mapped_column(default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     applications: Mapped[list["InternshipApplication"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    email_tokens: Mapped[list["EmailToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def email_verified(self) -> bool:
+        return self.email_verified_at is not None
+
+
+class EmailToken(Base):
+    __tablename__ = "email_tokens"
+    __table_args__ = (
+        Index("ix_email_tokens_user_purpose", "user_id", "purpose"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    purpose: Mapped[EmailTokenPurpose] = mapped_column(
+        SQLAlchemyEnum(
+            EmailTokenPurpose,
+            values_callable=lambda enum_values: [purpose.value for purpose in enum_values],
+            native_enum=False,
+        ),
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped[User] = relationship(back_populates="email_tokens")
+
+
+class EmailOutbox(Base):
+    __tablename__ = "email_outbox"
+    __table_args__ = (
+        Index("ix_email_outbox_status_available", "status", "available_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    to_email: Mapped[str] = mapped_column(String(320))
+    subject: Mapped[str] = mapped_column(String(200))
+    text_body: Mapped[str] = mapped_column(Text)
+    html_body: Mapped[str] = mapped_column(Text)
+    status: Mapped[EmailOutboxStatus] = mapped_column(
+        SQLAlchemyEnum(
+            EmailOutboxStatus,
+            values_callable=lambda enum_values: [status.value for status in enum_values],
+            native_enum=False,
+        ),
+        default=EmailOutboxStatus.PENDING,
+        index=True,
+    )
+    attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        index=True,
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(1_000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
     )
 
 
@@ -72,4 +159,5 @@ class InternshipApplication(Base):
         onupdate=utc_now,
     )
     user: Mapped[User] = relationship(back_populates="applications")
+
 

@@ -9,6 +9,17 @@ services:
       db:
         condition: service_healthy
 
+  email-worker:
+    build: .
+    command: ["python", "-m", "app.email_worker"]
+    env_file:
+      - .env
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
   db:
     image: postgres:16
     environment:
@@ -27,3 +38,5 @@ services:
 
 volumes:
   postgres_data:
+
+

@@ -54,8 +54,10 @@ export interface PaginatedApplications {
 export interface User {
   id: number;
   email: string;
+  email_verified: boolean;
   created_at: string;
 }
 
 export type SortBy = "deadline" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";
+

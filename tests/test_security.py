@@ -52,17 +52,26 @@ async def test_untrusted_origin_cannot_change_state(
     assert response.headers["x-frame-options"] == "DENY"
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+)
 async def test_trusted_origin_receives_credentialed_cors_headers(
     anonymous_client: AsyncClient,
+    origin: str,
 ) -> None:
     response = await anonymous_client.post(
         "/auth/register",
-        headers={"Origin": "http://localhost:5173"},
+        headers={"Origin": origin},
         json={"email": "student@example.com", "password": "securepass123"},
     )
 
     assert response.status_code == 201
-    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-origin"] == origin
     assert response.headers["access-control-allow-credentials"] == "true"
     assert response.headers["cache-control"] == "no-store"
 
@@ -117,3 +126,4 @@ async def test_application_notes_have_a_safe_size_limit(client: AsyncClient) -> 
     )
 
     assert response.status_code == 422
+

@@ -1,5 +1,6 @@
 import csv
 import math
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Annotated, Literal
@@ -25,14 +26,24 @@ from app.auth import (
     verify_password,
 )
 from app.database import get_db, get_settings
-from app.models import ApplicationStatus, InternshipApplication, User
+from app.email_delivery import enqueue_email, password_reset_email, verification_email
+from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
+from app.models import (
+    ApplicationStatus,
+    EmailTokenPurpose,
+    InternshipApplication,
+    User,
+)
 from app.schemas import (
     ApplicationCreate,
     ApplicationRead,
     ApplicationStats,
     ApplicationUpdate,
     DeleteAccountRequest,
+    EmailTokenRequest,
     PaginatedApplications,
+    PasswordForgotRequest,
+    PasswordResetRequest,
     UserCreate,
     UserLogin,
     UserRead,
@@ -50,7 +61,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.1.0",
+    version="2.2.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -107,6 +118,9 @@ def register(
     )
     db.add(user)
     try:
+        db.flush()
+        email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
+        enqueue_email(db, verification_email(user.email, email_token))
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -115,7 +129,7 @@ def register(
             detail="Email already registered",
         ) from None
     db.refresh(user)
-    set_session_cookie(response, user.id)
+    set_session_cookie(response, user)
     return user
 
 
@@ -133,8 +147,87 @@ def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
-    set_session_cookie(response, user.id)
+    set_session_cookie(response, user)
     return user
+
+
+@app.post("/auth/email/verification/request", status_code=status.HTTP_202_ACCEPTED)
+def request_email_verification(
+    request: Request,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    enforce_auth_rate_limit(request, "email_verification", user.email)
+    if not user.email_verified:
+        email_token = issue_email_token(db, user, EmailTokenPurpose.VERIFY_EMAIL)
+        enqueue_email(db, verification_email(user.email, email_token))
+        db.commit()
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@app.post("/auth/email/verify", response_model=UserRead)
+def verify_email_address(
+    token_in: EmailTokenRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    email_token = consume_email_token(db, token_in.token, EmailTokenPurpose.VERIFY_EMAIL)
+    if email_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification link is invalid or expired",
+        )
+    user = db.get(User, email_token.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+    user.email_verified_at = datetime.now(timezone.utc)
+    invalidate_user_tokens(db, user.id, EmailTokenPurpose.VERIFY_EMAIL)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@app.post("/auth/password/forgot", status_code=status.HTTP_202_ACCEPTED)
+def forgot_password(
+    request_in: PasswordForgotRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    normalized_email = normalize_email(request_in.email)
+    enforce_auth_rate_limit(request, "password_forgot", normalized_email)
+    user = get_user_by_email(db, normalized_email)
+    if user is not None:
+        email_token = issue_email_token(db, user, EmailTokenPurpose.RESET_PASSWORD)
+        enqueue_email(db, password_reset_email(user.email, email_token))
+        db.commit()
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@app.post("/auth/password/reset", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    reset_in: PasswordResetRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    enforce_auth_rate_limit(request, "password_reset", reset_in.token)
+    email_token = consume_email_token(db, reset_in.token, EmailTokenPurpose.RESET_PASSWORD)
+    if email_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset link is invalid or expired",
+        )
+    user = db.get(User, email_token.user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+    user.password_hash = hash_password(reset_in.new_password)
+    user.session_version += 1
+    invalidate_user_tokens(db, user.id, EmailTokenPurpose.RESET_PASSWORD)
+    db.add(user)
+    db.commit()
+    clear_session_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -337,4 +430,5 @@ def get_stats(
 frontend_directory = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if settings.environment != "test" and frontend_directory.exists():
     app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")
+
 

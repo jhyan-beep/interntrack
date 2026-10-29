@@ -9,6 +9,8 @@ import {
   getCurrentUser,
   getStats,
   logout,
+  requestEmailVerification,
+  verifyEmail,
   updateApplication
 } from "./api";
 import AuthScreen from "./AuthScreen";
@@ -219,7 +221,7 @@ function AccountDialog({
           <div><p className="eyebrow">Your account</p><h2 id="account-title">Account settings</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
         </div>
-        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>Your application data is private to this account.</small></div></div>
+        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.</small></div></div>
         {!confirmingDelete ? <div className="account-actions"><button className="button secondary" onClick={() => void onSignedOut()}>Sign out</button><button className="danger-link" onClick={() => setConfirmingDelete(true)}>Delete account</button></div> : <form className="delete-account-form" onSubmit={handleDelete}><h3>Delete your account?</h3><p>This permanently removes your account and every application. Enter your password to confirm.</p><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setConfirmingDelete(false); setPassword(""); setError(""); }}>Keep account</button><button type="submit" className="button destructive" disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</button></div></form>}
       </section>
     </div>
@@ -242,18 +244,37 @@ export default function App() {
   const [editing, setEditing] = useState<InternshipApplication | null>(null);
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 0 });
 
   useEffect(() => {
-    void getCurrentUser()
-      .then(setUser)
-      .catch((caught) => {
-        if (!(caught instanceof ApiError && caught.status === 401)) {
-          setError("Could not check your session. Please refresh the page.");
+    async function initializeAuth() {
+      const params = new URLSearchParams(window.location.search);
+      const verificationToken = params.get("verify_token");
+      const resetToken = params.get("reset_token");
+      if (verificationToken) {
+        try {
+          await verifyEmail(verificationToken);
+          setAuthNotice("Email verified. You can continue to your account.");
+          window.history.replaceState({}, "", window.location.pathname);
+        } catch (caught) {
+          setAuthNotice(caught instanceof Error ? caught.message : "Could not verify this email link.");
         }
-      })
-      .finally(() => setAuthLoading(false));
+      }
+      if (!resetToken) {
+        try {
+          setUser(await getCurrentUser());
+        } catch (caught) {
+          if (!(caught instanceof ApiError && caught.status === 401)) {
+            setError("Could not check your session. Please refresh the page.");
+          }
+        }
+      }
+      setAuthLoading(false);
+    }
+    void initializeAuth();
   }, []);
 
   useEffect(() => {
@@ -343,6 +364,18 @@ export default function App() {
     setStats(EMPTY_STATS);
   }
 
+  async function handleRequestVerification() {
+    setVerificationBusy(true);
+    try {
+      await requestEmailVerification();
+      setToast("Verification email queued");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send a verification email.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+
   function openCreate() {
     setEditing(null);
     setModalOpen(true);
@@ -360,7 +393,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <AuthScreen onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); }} />;
+    return <AuthScreen notice={authNotice} onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); setAuthNotice(""); }} />;
   }
 
   return (
@@ -382,6 +415,8 @@ export default function App() {
         </section>
 
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => void loadDashboard()}>Try again</button></div>}
+
+        {!user.email_verified && <div className="verification-banner" role="status"><div><strong>Verify your email</strong><span>Confirm your address so password recovery and future reminders reach you.</span></div><button className="button secondary compact" disabled={verificationBusy} onClick={() => void handleRequestVerification()}>{verificationBusy ? "Sending…" : "Send verification email"}</button></div>}
 
         <section className="metric-grid" aria-label="Application summary">
           <article className="metric-card"><span className="metric-icon blue"><Icon name="briefcase" /></span><div><p>Total applications</p><strong>{loading ? "—" : stats.total_applications}</strong><small>All tracked roles</small></div></article>
@@ -439,3 +474,4 @@ export default function App() {
     </div>
   );
 }
+
