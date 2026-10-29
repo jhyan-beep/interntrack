@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import crud
+from app.ai import AiNotConfiguredError, AiProviderError, parse_job_posting
 from app.auth import (
     CurrentUser,
     clear_session_cookie,
@@ -39,6 +40,8 @@ from app.schemas import (
     ApplicationRead,
     ApplicationStats,
     ApplicationUpdate,
+    AiJobDraft,
+    AiJobParseRequest,
     DeleteAccountRequest,
     EmailTokenRequest,
     PaginatedApplications,
@@ -61,7 +64,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.2.0",
+    version="2.3.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -240,6 +243,32 @@ def logout(response: Response) -> Response:
 @app.get("/auth/me", response_model=UserRead)
 def get_me(user: CurrentUser) -> User:
     return user
+
+
+@app.post("/ai/job-draft", response_model=AiJobDraft)
+def create_ai_job_draft(
+    job_in: AiJobParseRequest,
+    request: Request,
+    user: CurrentUser,
+) -> AiJobDraft:
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verify your email before using AI import",
+        )
+    enforce_auth_rate_limit(request, "ai_job_parse", str(user.id))
+    try:
+        return parse_job_posting(job_in, user.id)
+    except AiNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except AiProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
 
 
 @app.delete("/auth/me", status_code=status.HTTP_204_NO_CONTENT)

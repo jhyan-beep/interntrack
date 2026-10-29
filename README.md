@@ -12,6 +12,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Responsive dashboard for desktop and mobile
 - Create and edit applications from an accessible form
 - Visual pipeline and upcoming deadline overview
+- AI-assisted job-posting import with a review-before-save workflow
 - Email and password accounts with HttpOnly cookie sessions
 - Email verification and secure password reset links
 - Durable email outbox with a retrying background worker
@@ -41,11 +42,13 @@ InternTrack is a responsive web application for tracking software engineering in
 - Vite
 - Alembic
 - PyJWT and Argon2 password hashing
+- OpenAI Responses API with Structured Outputs
 
 ## Project Structure
 
 ```text
 app/
+  ai.py          Server-side AI extraction and provider error handling
   auth.py        Password hashing, sessions, and current-user dependency
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
@@ -81,6 +84,7 @@ tests/
 | POST | `/auth/logout` | Sign out |
 | GET | `/auth/me` | View the current account |
 | DELETE | `/auth/me` | Delete the current account and its data |
+| POST | `/ai/job-draft` | Parse a job posting into a reviewable application draft |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -187,11 +191,20 @@ SMTP_PORT=587
 SMTP_USERNAME=<smtp-username>
 SMTP_PASSWORD=<smtp-password>
 SMTP_STARTTLS=true
+OPENAI_API_KEY=<server-side-project-key>
+OPENAI_MODEL=gpt-6-luna
+OPENAI_TIMEOUT_SECONDS=20
 ```
 
 Production mode enables Secure cookies and HSTS, requires an approved `Origin` header for state-changing requests, requires HTTPS action links and SMTP delivery, and disables the interactive API documentation. Terminate HTTPS at the hosting platform or reverse proxy and configure it to preserve the original host and scheme. Store SMTP credentials in the hosting platform's secret manager; never commit them to Git.
 
 The built-in authentication limiter is intentionally small and process-local so the project stays interview-friendly. It protects a single container; a multi-replica commercial deployment should enforce an additional shared limit at the load balancer, API gateway, or Redis layer.
+
+## AI-assisted import
+
+Verified users can paste a job description and optional posting URL into the AI import dialog. The backend sends the text to the OpenAI Responses API and uses Structured Outputs to produce typed suggestions for company, role, location, deadline, source URL, and notes. InternTrack then opens the normal application form with those suggestions; it never saves an AI result automatically.
+
+The default model is `gpt-6-luna`, selected for a focused extraction workload, and can be changed with `OPENAI_MODEL`. Requests use `store=False`, are input-limited and rate-limited, and treat the posting as untrusted data. `OPENAI_API_KEY` is read only by the backend and must come from the deployment secret manager. If it is absent, normal tracking features continue to work and AI import returns a clear configuration error.
 
 ## Authentication and data privacy
 
@@ -233,10 +246,10 @@ Supported statuses:
 
 ## Example Resume Bullet
 
-Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with email verification, single-use password recovery, durable background email delivery, per-user authorization, rate limiting, analytics, Docker, Alembic migrations, and PostgreSQL-backed CI.
+Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs for reviewable job-posting imports, email verification, single-use password recovery, durable background delivery, per-user authorization, Docker, Alembic migrations, and PostgreSQL-backed CI.
 
 ## Product Roadmap
 
-The current release supports hardened authenticated workspaces, email verification, and password recovery suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, AI-assisted application entry, reminders, and billing.
+The current release supports hardened authenticated workspaces, email verification, password recovery, and reviewable AI-assisted application entry suitable for a controlled beta. Remaining production work includes configuring a verified sending domain and transactional-email provider, shared rate limiting for multi-replica deployments, centralized monitoring, automated backups, formal privacy documentation, deadline reminders, and billing.
 
 

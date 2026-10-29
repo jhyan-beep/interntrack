@@ -34,6 +34,18 @@ export interface ApplicationInput {
   notes: string | null;
 }
 
+export type AiDraftField = "company" | "role" | "location" | "deadline" | "source_url" | "notes";
+
+export interface AiJobDraft {
+  company: string | null;
+  role: string | null;
+  location: string | null;
+  deadline: string | null;
+  source_url: string | null;
+  notes: string | null;
+  uncertain_fields: AiDraftField[];
+}
+
 export interface ApplicationStats {
   total_applications: number;
   active_applications: number;
