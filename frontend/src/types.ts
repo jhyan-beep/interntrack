@@ -81,20 +81,20 @@ export interface DesktopAiSettings {
   model: string;
 }
 
-export interface DesktopGoogleConnection {
+export interface DesktopEmailConnection {
   configured: boolean;
   connected: boolean;
   account_email: string | null;
   scope: string | null;
 }
 
-export interface DesktopGoogleConnectResult {
+export interface DesktopEmailConnectResult {
   authorization_url: string;
   expires_at: string;
   browser_opened: boolean;
 }
 
-export interface GmailStatusSuggestion {
+export interface EmailStatusSuggestion {
   message_id: string;
   application_id: number;
   company: string;
@@ -107,9 +107,9 @@ export interface GmailStatusSuggestion {
   reason: string;
 }
 
-export interface GmailSyncResult {
+export interface EmailSyncResult {
   scanned_messages: number;
-  suggestions: GmailStatusSuggestion[];
+  suggestions: EmailStatusSuggestion[];
 }
 
 export interface ReminderSettings {

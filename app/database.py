@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     openai_timeout_seconds: int = Field(default=20, ge=5, le=60)
     desktop_data_dir: Path | None = None
     google_oauth_client_id: str | None = None
+    microsoft_oauth_client_id: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
