@@ -1,6 +1,8 @@
 import csv
+import html
 import math
 import os
+import webbrowser
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -8,14 +10,14 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import crud
+from app import crud, gmail
 from app.ai import AiNotConfiguredError, AiProviderError, parse_job_posting
 from app.auth import (
     CurrentUser,
@@ -29,7 +31,7 @@ from app.auth import (
 )
 from app.beta import get_beta_progress, record_product_event, save_beta_feedback
 from app.database import get_db, get_settings
-from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
+from app.desktop_secrets import DesktopJsonSecretStore, DesktopSecretError, DesktopSecretStore
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
 from app.models import (
@@ -52,7 +54,11 @@ from app.schemas import (
     DeleteAccountRequest,
     DesktopAiSettingsRead,
     DesktopAiSettingsUpdate,
+    DesktopGoogleConnectionRead,
+    DesktopGoogleConnectRead,
+    DesktopGoogleConnectRequest,
     EmailTokenRequest,
+    GmailSyncRead,
     PaginatedApplications,
     PasswordForgotRequest,
     PasswordResetRequest,
@@ -77,7 +83,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.8.0",
+    version="2.9.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -127,10 +133,21 @@ def runtime_info() -> RuntimeInfo:
     )
 
 
-def _desktop_secret_store() -> DesktopSecretStore:
+def _desktop_data_directory() -> Path:
     if settings.environment != "desktop" or settings.desktop_data_dir is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return DesktopSecretStore(settings.desktop_data_dir)
+    return settings.desktop_data_dir
+
+
+def _desktop_secret_store() -> DesktopSecretStore:
+    return DesktopSecretStore(_desktop_data_directory())
+
+
+def _desktop_google_store(user_id: int) -> DesktopJsonSecretStore:
+    return DesktopJsonSecretStore(
+        _desktop_data_directory(),
+        f"google-oauth-user-{user_id}.dpapi",
+    )
 
 
 @app.get("/desktop/ai-settings", response_model=DesktopAiSettingsRead)
@@ -175,6 +192,158 @@ def delete_desktop_ai_settings(user: CurrentUser) -> Response:
     settings.openai_api_key = None
     os.environ.pop("OPENAI_API_KEY", None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/desktop/email/google", response_model=DesktopGoogleConnectionRead)
+def get_desktop_google_connection(user: CurrentUser) -> DesktopGoogleConnectionRead:
+    try:
+        tokens = _desktop_google_store(user.id).load()
+    except DesktopSecretError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not read the saved Gmail connection",
+        ) from None
+    return DesktopGoogleConnectionRead(
+        configured=bool(settings.google_oauth_client_id or (tokens or {}).get("client_id")),
+        connected=bool(tokens and (tokens.get("refresh_token") or tokens.get("access_token"))),
+        account_email=(tokens or {}).get("account_email"),
+        scope=(tokens or {}).get("scope"),
+    )
+
+
+@app.post("/desktop/email/google/connect", response_model=DesktopGoogleConnectRead)
+def connect_desktop_google(
+    connection: DesktopGoogleConnectRequest,
+    user: CurrentUser,
+) -> DesktopGoogleConnectRead:
+    store = _desktop_google_store(user.id)
+    try:
+        existing = store.load()
+    except DesktopSecretError:
+        existing = None
+    client_id = connection.client_id or settings.google_oauth_client_id or (existing or {}).get(
+        "client_id"
+    )
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A Google Desktop OAuth client ID is required",
+        )
+    redirect_uri = f"{settings.app_base_url.rstrip('/')}/"
+    try:
+        authorization_url, expires_at = gmail.create_authorization_url(
+            user.id,
+            client_id,
+            redirect_uri,
+            login_hint=user.email,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    try:
+        browser_opened = webbrowser.open(authorization_url, new=2)
+    except webbrowser.Error:
+        browser_opened = False
+    return DesktopGoogleConnectRead(
+        authorization_url=authorization_url,
+        expires_at=expires_at,
+        browser_opened=browser_opened,
+    )
+
+
+def _google_callback_page(title: str, message: str, success: bool) -> str:
+    color = "#216845" if success else "#a53a2f"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>{html.escape(title)}</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f5f0;color:#17233c;font-family:system-ui,sans-serif">
+<main style="max-width:520px;padding:36px;text-align:center"><h1 style="color:{color}">{html.escape(title)}</h1>
+<p style="line-height:1.6">{html.escape(message)}</p><p>You can close this browser tab and return to InternTrack.</p></main>
+</body></html>"""
+
+
+@app.get("/", include_in_schema=False)
+def desktop_google_callback(
+    state: str | None = None,
+    code: str | None = None,
+    error: str | None = None,
+) -> Response:
+    if state is None:
+        index_file = Path(__file__).resolve().parent.parent / "frontend" / "dist" / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    _desktop_data_directory()
+    try:
+        pending = gmail.consume_authorization(state)
+        if error or not code:
+            raise gmail.GmailAuthorizationError("Gmail access was not granted")
+        tokens = gmail.exchange_authorization_code(pending, code)
+        store = _desktop_google_store(pending.user_id)
+        existing = store.load() or {}
+        if not tokens.get("refresh_token") and existing.get("refresh_token"):
+            tokens["refresh_token"] = existing["refresh_token"]
+        tokens["account_email"] = gmail.fetch_profile_email(str(tokens["access_token"]))
+        store.save(tokens)
+    except (gmail.GmailProviderError, DesktopSecretError) as exc:
+        return HTMLResponse(
+            _google_callback_page("Gmail connection failed", str(exc), False),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return HTMLResponse(
+        _google_callback_page(
+            "Gmail connected",
+            f"InternTrack can now review email metadata for {tokens['account_email']}.",
+            True,
+        )
+    )
+
+
+@app.delete("/desktop/email/google", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect_desktop_google(user: CurrentUser) -> Response:
+    store = _desktop_google_store(user.id)
+    try:
+        tokens = store.load()
+        if tokens:
+            gmail.revoke_tokens(tokens)
+        store.delete()
+    except (DesktopSecretError, OSError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not remove the Gmail connection",
+        ) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/desktop/email/google/sync", response_model=GmailSyncRead)
+def sync_desktop_google(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> GmailSyncRead:
+    store = _desktop_google_store(user.id)
+    try:
+        tokens = store.load()
+        if not tokens:
+            raise gmail.GmailAuthorizationError("Connect Gmail before syncing")
+        access_token, _ = gmail.ensure_access_token(tokens, store)
+        messages = gmail.list_recent_metadata(access_token)
+    except gmail.GmailAuthorizationError as exc:
+        store.delete()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (gmail.GmailProviderError, DesktopSecretError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    applications = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(InternshipApplication.user_id == user.id)
+            .order_by(InternshipApplication.updated_at.desc())
+        )
+    )
+    suggestions = gmail.suggest_status_updates(messages, applications)
+    return GmailSyncRead(scanned_messages=len(messages), suggestions=suggestions)
 
 
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -434,6 +603,15 @@ def delete_account(
 ) -> Response:
     if not verify_password(confirmation.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+    if settings.environment == "desktop" and settings.desktop_data_dir is not None:
+        google_store = _desktop_google_store(user.id)
+        try:
+            tokens = google_store.load()
+            if tokens:
+                gmail.revoke_tokens(tokens)
+            google_store.delete()
+        except (DesktopSecretError, OSError):
+            pass
     db.delete(user)
     db.commit()
     clear_session_cookie(response)

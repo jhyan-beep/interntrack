@@ -185,6 +185,49 @@ class DesktopAiSettingsUpdate(BaseModel):
         return SecretStr(cleaned)
 
 
+class DesktopGoogleConnectionRead(BaseModel):
+    configured: bool
+    connected: bool
+    account_email: str | None = None
+    scope: str | None = None
+
+
+class DesktopGoogleConnectRequest(BaseModel):
+    client_id: str | None = Field(default=None, max_length=300)
+
+    @field_validator("client_id")
+    @classmethod
+    def normalize_client_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class DesktopGoogleConnectRead(BaseModel):
+    authorization_url: str
+    expires_at: datetime
+    browser_opened: bool
+
+
+class GmailStatusSuggestion(BaseModel):
+    message_id: str
+    application_id: int
+    company: str
+    role: str
+    current_status: ApplicationStatus
+    suggested_status: ApplicationStatus
+    subject: str
+    sender: str
+    received_at: datetime | None = None
+    reason: str
+
+
+class GmailSyncRead(BaseModel):
+    scanned_messages: int
+    suggestions: list[GmailStatusSuggestion]
+
+
 class ReminderSettingsRead(BaseModel):
     deadline_reminders_enabled: bool
     deadline_reminder_days: int

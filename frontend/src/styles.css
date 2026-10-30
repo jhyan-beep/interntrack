@@ -206,7 +206,7 @@ tbody tr:hover { background: #fbfcff; }
 .modal-actions { margin-top: 26px; padding-top: 20px; border-top: 1px solid #ecebe6; display: flex; justify-content: flex-end; gap: 10px; }
 .toast { position: fixed; left: 50%; bottom: 25px; padding: 12px 18px; border-radius: 11px; color: white; background: var(--ink); box-shadow: 0 16px 40px rgba(13, 28, 48, .25); font-size: 13px; font-weight: 700; opacity: 0; transform: translate(-50%, 14px); pointer-events: none; transition: .22s ease; z-index: 60; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }
-.account-dialog { width: min(520px, 100%); }
+.account-dialog { width: min(620px, 100%); }
 .account-summary { padding: 18px; border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; gap: 13px; background: #f8f8f5; }
 .account-summary > span { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: white; background: var(--ink); font: 800 16px "Manrope", sans-serif; }
 .account-summary > div { min-width: 0; display: grid; gap: 4px; }
@@ -231,12 +231,28 @@ tbody tr:hover { background: #fbfcff; }
 .ai-settings-heading > div { min-width: 0; }
 .ai-settings-heading > span { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; color: #6b7280; background: #eceeea; font-size: 10px; font-weight: 800; }
 .ai-settings-heading > span.configured { color: #216845; background: #e5f5eb; }
-.ai-settings > label { margin-top: 18px; display: grid; gap: 7px; color: #445163; font-size: 12px; font-weight: 700; }
-.ai-settings input { height: 43px; padding: 0 12px; border: 1px solid #d8dad8; border-radius: 10px; outline: 0; }
-.ai-settings input:focus { border-color: #7ca4f5; box-shadow: 0 0 0 3px rgba(21, 94, 239, .1); }
-.ai-settings label small { color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.5; }
+.ai-settings > label, .gmail-settings > label { margin-top: 18px; display: grid; gap: 7px; color: #445163; font-size: 12px; font-weight: 700; }
+.ai-settings input, .gmail-settings input { height: 43px; padding: 0 12px; border: 1px solid #d8dad8; border-radius: 10px; outline: 0; }
+.ai-settings input:focus, .gmail-settings input:focus { border-color: #7ca4f5; box-shadow: 0 0 0 3px rgba(21, 94, 239, .1); }
+.ai-settings label small, .gmail-settings label small { color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.5; }
 .ai-settings .reminder-save { flex-wrap: wrap; }
 .ai-settings .danger-link:disabled { cursor: not-allowed; opacity: .55; }
+.gmail-account { margin-top: 16px !important; }
+.gmail-account strong { color: #344054; }
+.gmail-actions { margin-top: 16px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+.gmail-privacy { margin-top: 14px !important; padding: 11px 12px; border-radius: 9px; color: #596678 !important; background: #f1f4f7; }
+.gmail-message { margin-top: 14px !important; color: #216845 !important; font-weight: 700; }
+.gmail-auth-link { margin-top: 11px; display: block; color: var(--blue); font-size: 11px; font-weight: 700; text-align: right; }
+.gmail-suggestions { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
+.gmail-suggestions h4 { margin: 0 0 10px; font-size: 13px; }
+.gmail-suggestions article { padding: 13px; border: 1px solid #dfe3df; border-radius: 11px; background: white; }
+.gmail-suggestions article + article { margin-top: 9px; }
+.gmail-suggestions article > div { display: flex; justify-content: space-between; gap: 12px; }
+.gmail-suggestions article strong { font-size: 12px; }
+.gmail-suggestions article span { flex: 0 0 auto; color: #216845; font-size: 10px; font-weight: 800; }
+.gmail-suggestions article p { margin-top: 7px; color: #344054; font-weight: 600; }
+.gmail-suggestions article small { margin-top: 4px; display: block; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.gmail-suggestions article button { margin-top: 10px; }
 .account-actions { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; }
 .danger-link { padding: 8px; border: 0; color: #bc3f33; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-link:hover { text-decoration: underline; }

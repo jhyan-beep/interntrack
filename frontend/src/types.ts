@@ -81,6 +81,37 @@ export interface DesktopAiSettings {
   model: string;
 }
 
+export interface DesktopGoogleConnection {
+  configured: boolean;
+  connected: boolean;
+  account_email: string | null;
+  scope: string | null;
+}
+
+export interface DesktopGoogleConnectResult {
+  authorization_url: string;
+  expires_at: string;
+  browser_opened: boolean;
+}
+
+export interface GmailStatusSuggestion {
+  message_id: string;
+  application_id: number;
+  company: string;
+  role: string;
+  current_status: ApplicationStatus;
+  suggested_status: ApplicationStatus;
+  subject: string;
+  sender: string;
+  received_at: string | null;
+  reason: string;
+}
+
+export interface GmailSyncResult {
+  scanned_messages: number;
+  suggestions: GmailStatusSuggestion[];
+}
+
 export interface ReminderSettings {
   deadline_reminders_enabled: boolean;
   deadline_reminder_days: number;

@@ -6,6 +6,9 @@ import type {
   BetaFeedback,
   BetaProgress,
   DesktopAiSettings,
+  DesktopGoogleConnection,
+  DesktopGoogleConnectResult,
+  GmailSyncResult,
   InternshipApplication,
   PaginatedApplications,
   ReminderSettings,
@@ -101,6 +104,25 @@ export function updateDesktopAiSettings(apiKey: string): Promise<DesktopAiSettin
 
 export function deleteDesktopAiSettings(): Promise<void> {
   return request("/desktop/ai-settings", { method: "DELETE" });
+}
+
+export function getDesktopGoogleConnection(): Promise<DesktopGoogleConnection> {
+  return request("/desktop/email/google");
+}
+
+export function connectDesktopGoogle(clientId: string): Promise<DesktopGoogleConnectResult> {
+  return request("/desktop/email/google/connect", {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId || null })
+  });
+}
+
+export function disconnectDesktopGoogle(): Promise<void> {
+  return request("/desktop/email/google", { method: "DELETE" });
+}
+
+export function syncDesktopGoogle(): Promise<GmailSyncResult> {
+  return request("/desktop/email/google/sync", { method: "POST" });
 }
 
 export function recordBetaSession(): Promise<void> {

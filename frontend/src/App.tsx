@@ -1,15 +1,18 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
+  connectDesktopGoogle,
   createApplication,
   deleteAccount,
   deleteApplication,
   deleteDesktopAiSettings,
+  disconnectDesktopGoogle,
   downloadCsv,
   getApplications,
   getBetaProgress,
   getCurrentUser,
   getDesktopAiSettings,
+  getDesktopGoogleConnection,
   getRuntimeInfo,
   getReminderSettings,
   getStats,
@@ -18,6 +21,7 @@ import {
   recordBetaSession,
   requestEmailVerification,
   submitBetaFeedback,
+  syncDesktopGoogle,
   updateDesktopAiSettings,
   updateReminderSettings,
   verifyEmail,
@@ -29,6 +33,8 @@ import {
   type AiJobDraft,
   type BetaProgress,
   type DesktopAiSettings,
+  type DesktopGoogleConnection,
+  type GmailStatusSuggestion,
   type ApplicationInput,
   type ApplicationStats,
   type ApplicationStatus,
@@ -288,14 +294,25 @@ function AccountDialog({
   const [apiKey, setApiKey] = useState("");
   const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
   const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
+  const [googleConnection, setGoogleConnection] = useState<DesktopGoogleConnection | null>(null);
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailMessage, setGmailMessage] = useState("");
+  const [gmailAuthorizationUrl, setGmailAuthorizationUrl] = useState("");
+  const [gmailSuggestions, setGmailSuggestions] = useState<GmailStatusSuggestion[]>([]);
 
   useEffect(() => {
     if (desktopMode) {
       setReminderBusy(false);
       let active = true;
-      getDesktopAiSettings()
-        .then((nextSettings) => active && setAiSettings(nextSettings))
-        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load AI settings."));
+      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection()])
+        .then(([nextAiSettings, nextGoogleConnection]) => {
+          if (!active) return;
+          setAiSettings(nextAiSettings);
+          setGoogleConnection(nextGoogleConnection);
+        })
+        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."));
       return () => { active = false; };
     }
     let active = true;
@@ -308,6 +325,33 @@ function AccountDialog({
       .finally(() => active && setReminderBusy(false));
     return () => { active = false; };
   }, [desktopMode]);
+
+  useEffect(() => {
+    if (!gmailConnecting) return;
+    let active = true;
+    let attempts = 0;
+    async function checkConnection() {
+      attempts += 1;
+      try {
+        const nextConnection = await getDesktopGoogleConnection();
+        if (!active) return;
+        setGoogleConnection(nextConnection);
+        if (nextConnection.connected) {
+          setGmailConnecting(false);
+          setGmailAuthorizationUrl("");
+          setGmailMessage(`Connected ${nextConnection.account_email ?? "Gmail"}.`);
+        } else if (attempts >= 48) {
+          setGmailConnecting(false);
+          setGmailMessage("Connection timed out. Start the Gmail connection again.");
+        }
+      } catch {
+        if (active && attempts >= 48) setGmailConnecting(false);
+      }
+    }
+    void checkConnection();
+    const timer = window.setInterval(() => void checkConnection(), 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [gmailConnecting]);
 
   async function handleReminderSubmit(event: FormEvent) {
     event.preventDefault();
@@ -359,6 +403,68 @@ function AccountDialog({
     }
   }
 
+  async function handleGoogleConnect() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      const result = await connectDesktopGoogle(googleClientId.trim());
+      setGmailAuthorizationUrl(result.authorization_url);
+      setGmailConnecting(true);
+      setGmailMessage(result.browser_opened ? "Finish granting access in your browser." : "Open the authorization link to continue.");
+      if (!result.browser_opened) window.open(result.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start Gmail authorization.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleGoogleDisconnect() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      await disconnectDesktopGoogle();
+      setGoogleConnection(await getDesktopGoogleConnection());
+      setGmailSuggestions([]);
+      setGmailMessage("Gmail disconnected and local tokens removed.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not disconnect Gmail.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleGoogleSync() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      const result = await syncDesktopGoogle();
+      setGmailSuggestions(result.suggestions);
+      setGmailMessage(`${result.scanned_messages} recent inbox messages checked · ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sync Gmail.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleApplyGmailSuggestion(suggestion: GmailStatusSuggestion) {
+    setGmailBusy(true);
+    setError("");
+    try {
+      await updateApplication(suggestion.application_id, { status: suggestion.suggested_status });
+      setGmailSuggestions((current) => current.filter((item) => item.message_id !== suggestion.message_id));
+      setGmailMessage(`${suggestion.company} updated to ${STATUS_LABELS[suggestion.suggested_status]}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not apply this suggestion.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -389,6 +495,20 @@ function AccountDialog({
             <div className="reminder-save"><span aria-live="polite">{aiSettingsSaved ? "Saved" : ""}</span>{aiSettings.configured && <button className="danger-link" type="button" disabled={aiSettingsBusy} onClick={() => void handleRemoveAiSettings()}>Remove key</button>}<button className="button secondary compact" type="submit" disabled={aiSettingsBusy || apiKey.trim().length < 20}>{aiSettingsBusy ? "Saving…" : aiSettings.configured ? "Replace key" : "Enable AI import"}</button></div>
           </>}
         </form>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings gmail-settings">
+          <div className="ai-settings-heading"><div><h3>Gmail status sync</h3><p>Review recent inbox metadata for application updates. Email bodies never leave Gmail.</p></div>{googleConnection && <span className={googleConnection.connected ? "configured" : ""}>{googleConnection.connected ? "Connected" : "Not connected"}</span>}</div>
+          {!googleConnection ? <p className="settings-loading">Loading Gmail settings…</p> : googleConnection.connected ? <>
+            <p className="gmail-account">Connected account: <strong>{googleConnection.account_email}</strong></p>
+            <div className="gmail-actions"><button className="danger-link" type="button" disabled={gmailBusy} onClick={() => void handleGoogleDisconnect()}>Disconnect</button><button className="button secondary compact" type="button" disabled={gmailBusy} onClick={() => void handleGoogleSync()}>{gmailBusy ? "Working…" : "Check recent mail"}</button></div>
+          </> : <>
+            {!googleConnection.configured && <label>Google Desktop OAuth client ID<input type="text" autoComplete="off" maxLength={300} value={googleClientId} onChange={(event) => setGoogleClientId(event.target.value)} placeholder="123…apps.googleusercontent.com" /><small>Create a Desktop app client in Google Cloud for beta testing. A verified client ID will be embedded before public release.</small></label>}
+            <p className="gmail-privacy">InternTrack requests Gmail metadata-only access and reads sender, subject, and date—not message bodies. Suggestions are never applied without your approval.</p>
+            <div className="gmail-actions"><button className="button secondary compact" type="button" disabled={gmailBusy || gmailConnecting || (!googleConnection.configured && !googleClientId.trim().endsWith(".apps.googleusercontent.com"))} onClick={() => void handleGoogleConnect()}>{gmailConnecting ? "Waiting for Google…" : gmailBusy ? "Opening…" : "Connect Gmail"}</button></div>
+            {gmailAuthorizationUrl && <a className="gmail-auth-link" href={gmailAuthorizationUrl} target="_blank" rel="noopener noreferrer">Open Google authorization</a>}
+          </>}
+          {gmailMessage && <p className="gmail-message" role="status">{gmailMessage}</p>}
+          {gmailSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{gmailSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={gmailBusy} onClick={() => void handleApplyGmailSuggestion(suggestion)}>Apply update</button></article>)}</div>}
+        </section>}
         {!confirmingDelete && !desktopMode && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
           <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>
           {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
