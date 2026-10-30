@@ -214,7 +214,9 @@ desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 
 Pull requests that touch desktop runtime files also run the `Windows Desktop` workflow and upload the setup executable as a GitHub Actions artifact.
 
-The first desktop release intentionally focuses on offline CRUD, filtering, statistics, and CSV export. Email verification, password-reset email, and cloud reminders are disabled in desktop mode. AI import will be added as an explicit bring-your-own-key setting so no provider secret is embedded in the installer.
+Desktop users can enable AI import from **Account settings → AI import** with their own OpenAI API key. The key is encrypted at rest with Windows DPAPI, tied to the current Windows account, and never returned to the frontend after saving. No provider secret is embedded in the installer. Removing the key immediately disables AI import and deletes the encrypted local file.
+
+Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. A future desktop email integration will use a separate provider OAuth flow rather than storing an email password.
 
 ## Run Tests
 

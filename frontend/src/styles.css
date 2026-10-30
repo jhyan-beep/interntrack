@@ -227,6 +227,16 @@ tbody tr:hover { background: #fbfcff; }
 .reminder-save { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .reminder-save span { color: #287b4c; font-size: 12px; font-weight: 700; }
 .settings-loading { margin-top: 18px !important; }
+.ai-settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.ai-settings-heading > div { min-width: 0; }
+.ai-settings-heading > span { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; color: #6b7280; background: #eceeea; font-size: 10px; font-weight: 800; }
+.ai-settings-heading > span.configured { color: #216845; background: #e5f5eb; }
+.ai-settings > label { margin-top: 18px; display: grid; gap: 7px; color: #445163; font-size: 12px; font-weight: 700; }
+.ai-settings input { height: 43px; padding: 0 12px; border: 1px solid #d8dad8; border-radius: 10px; outline: 0; }
+.ai-settings input:focus { border-color: #7ca4f5; box-shadow: 0 0 0 3px rgba(21, 94, 239, .1); }
+.ai-settings label small { color: var(--muted); font-size: 10px; font-weight: 500; line-height: 1.5; }
+.ai-settings .reminder-save { flex-wrap: wrap; }
+.ai-settings .danger-link:disabled { cursor: not-allowed; opacity: .55; }
 .account-actions { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; }
 .danger-link { padding: 8px; border: 0; color: #bc3f33; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-link:hover { text-decoration: underline; }

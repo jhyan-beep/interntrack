@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import secrets
 import sys
 from pathlib import Path
 
+from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
+
 
 DEFAULT_PORT = 8765
+logger = logging.getLogger("interntrack.desktop")
 
 
 def default_data_directory() -> Path:
@@ -35,12 +39,22 @@ def configure_desktop_environment(data_directory: Path, port: int) -> Path:
     base_url = f"http://127.0.0.1:{port}"
 
     os.environ["ENVIRONMENT"] = "desktop"
+    os.environ["DESKTOP_DATA_DIR"] = str(data_directory)
     os.environ["DATABASE_URL"] = f"sqlite:///{database_path.as_posix()}"
     os.environ["SECRET_KEY"] = ensure_secret_key(data_directory)
     os.environ["APP_BASE_URL"] = base_url
     os.environ["CORS_ORIGINS"] = f"{base_url},http://localhost:{port}"
     os.environ["ALLOWED_HOSTS"] = "127.0.0.1,localhost"
     os.environ["EMAIL_DELIVERY_MODE"] = "console"
+    try:
+        saved_api_key = DesktopSecretStore(data_directory).load()
+    except DesktopSecretError:
+        logger.warning("The saved OpenAI API key could not be decrypted; AI import is disabled")
+        saved_api_key = None
+    if saved_api_key:
+        os.environ["OPENAI_API_KEY"] = saved_api_key
+    else:
+        os.environ.pop("OPENAI_API_KEY", None)
     return database_path
 
 

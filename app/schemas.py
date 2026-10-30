@@ -8,6 +8,7 @@ from pydantic import (
     EmailStr,
     Field,
     HttpUrl,
+    SecretStr,
     TypeAdapter,
     field_validator,
     model_validator,
@@ -165,6 +166,23 @@ class RuntimeInfo(BaseModel):
     mode: Literal["web", "desktop"]
     ai_available: bool
     email_features_available: bool
+
+
+class DesktopAiSettingsRead(BaseModel):
+    configured: bool
+    model: str
+
+
+class DesktopAiSettingsUpdate(BaseModel):
+    api_key: SecretStr = Field(..., max_length=500)
+
+    @field_validator("api_key")
+    @classmethod
+    def api_key_must_not_be_blank(cls, value: SecretStr) -> SecretStr:
+        cleaned = value.get_secret_value().strip()
+        if len(cleaned) < 20:
+            raise ValueError("API key must be at least 20 characters")
+        return SecretStr(cleaned)
 
 
 class ReminderSettingsRead(BaseModel):

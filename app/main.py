@@ -1,5 +1,6 @@
 import csv
 import math
+import os
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
@@ -28,6 +29,7 @@ from app.auth import (
 )
 from app.beta import get_beta_progress, record_product_event, save_beta_feedback
 from app.database import get_db, get_settings
+from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
 from app.models import (
@@ -48,6 +50,8 @@ from app.schemas import (
     BetaFeedbackRead,
     BetaProgress,
     DeleteAccountRequest,
+    DesktopAiSettingsRead,
+    DesktopAiSettingsUpdate,
     EmailTokenRequest,
     PaginatedApplications,
     PasswordForgotRequest,
@@ -73,7 +77,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.7.0",
+    version="2.8.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -121,6 +125,56 @@ def runtime_info() -> RuntimeInfo:
         ai_available=settings.openai_api_key is not None,
         email_features_available=not desktop_mode,
     )
+
+
+def _desktop_secret_store() -> DesktopSecretStore:
+    if settings.environment != "desktop" or settings.desktop_data_dir is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return DesktopSecretStore(settings.desktop_data_dir)
+
+
+@app.get("/desktop/ai-settings", response_model=DesktopAiSettingsRead)
+def get_desktop_ai_settings(user: CurrentUser) -> DesktopAiSettingsRead:
+    del user
+    _desktop_secret_store()
+    return DesktopAiSettingsRead(
+        configured=settings.openai_api_key is not None,
+        model=settings.openai_model,
+    )
+
+
+@app.put("/desktop/ai-settings", response_model=DesktopAiSettingsRead)
+def update_desktop_ai_settings(
+    update: DesktopAiSettingsUpdate,
+    user: CurrentUser,
+) -> DesktopAiSettingsRead:
+    del user
+    api_key = update.api_key.get_secret_value()
+    try:
+        _desktop_secret_store().save(api_key)
+    except DesktopSecretError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not securely save the API key",
+        ) from None
+    settings.openai_api_key = update.api_key
+    os.environ["OPENAI_API_KEY"] = api_key
+    return DesktopAiSettingsRead(configured=True, model=settings.openai_model)
+
+
+@app.delete("/desktop/ai-settings", status_code=status.HTTP_204_NO_CONTENT)
+def delete_desktop_ai_settings(user: CurrentUser) -> Response:
+    del user
+    try:
+        _desktop_secret_store().delete()
+    except OSError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not remove the saved API key",
+        ) from None
+    settings.openai_api_key = None
+    os.environ.pop("OPENAI_API_KEY", None)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
