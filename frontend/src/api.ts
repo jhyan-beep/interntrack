@@ -6,9 +6,9 @@ import type {
   BetaFeedback,
   BetaProgress,
   DesktopAiSettings,
-  DesktopGoogleConnection,
-  DesktopGoogleConnectResult,
-  GmailSyncResult,
+  DesktopEmailConnection,
+  DesktopEmailConnectResult,
+  EmailSyncResult,
   InternshipApplication,
   PaginatedApplications,
   ReminderSettings,
@@ -106,11 +106,11 @@ export function deleteDesktopAiSettings(): Promise<void> {
   return request("/desktop/ai-settings", { method: "DELETE" });
 }
 
-export function getDesktopGoogleConnection(): Promise<DesktopGoogleConnection> {
+export function getDesktopGoogleConnection(): Promise<DesktopEmailConnection> {
   return request("/desktop/email/google");
 }
 
-export function connectDesktopGoogle(clientId: string): Promise<DesktopGoogleConnectResult> {
+export function connectDesktopGoogle(clientId: string): Promise<DesktopEmailConnectResult> {
   return request("/desktop/email/google/connect", {
     method: "POST",
     body: JSON.stringify({ client_id: clientId || null })
@@ -121,8 +121,27 @@ export function disconnectDesktopGoogle(): Promise<void> {
   return request("/desktop/email/google", { method: "DELETE" });
 }
 
-export function syncDesktopGoogle(): Promise<GmailSyncResult> {
+export function syncDesktopGoogle(): Promise<EmailSyncResult> {
   return request("/desktop/email/google/sync", { method: "POST" });
+}
+
+export function getDesktopMicrosoftConnection(): Promise<DesktopEmailConnection> {
+  return request("/desktop/email/microsoft");
+}
+
+export function connectDesktopMicrosoft(clientId: string): Promise<DesktopEmailConnectResult> {
+  return request("/desktop/email/microsoft/connect", {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId || null })
+  });
+}
+
+export function disconnectDesktopMicrosoft(): Promise<void> {
+  return request("/desktop/email/microsoft", { method: "DELETE" });
+}
+
+export function syncDesktopMicrosoft(): Promise<EmailSyncResult> {
+  return request("/desktop/email/microsoft/sync", { method: "POST" });
 }
 
 export function recordBetaSession(): Promise<void> {

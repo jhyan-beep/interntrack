@@ -228,6 +228,36 @@ class GmailSyncRead(BaseModel):
     suggestions: list[GmailStatusSuggestion]
 
 
+class DesktopMicrosoftConnectionRead(BaseModel):
+    configured: bool
+    connected: bool
+    account_email: str | None = None
+    scope: str | None = None
+
+
+class DesktopMicrosoftConnectRequest(BaseModel):
+    client_id: str | None = Field(default=None, max_length=300)
+
+    @field_validator("client_id")
+    @classmethod
+    def normalize_client_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class DesktopMicrosoftConnectRead(BaseModel):
+    authorization_url: str
+    expires_at: datetime
+    browser_opened: bool
+
+
+class OutlookSyncRead(BaseModel):
+    scanned_messages: int
+    suggestions: list[GmailStatusSuggestion]
+
+
 class ReminderSettingsRead(BaseModel):
     deadline_reminders_enabled: bool
     deadline_reminder_days: int

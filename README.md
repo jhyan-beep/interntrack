@@ -114,6 +114,10 @@ Caddyfile              Automatic HTTPS reverse proxy
 | POST | `/desktop/email/google/connect` | Start the desktop Google OAuth + PKCE flow |
 | DELETE | `/desktop/email/google` | Revoke and delete the local Gmail connection |
 | POST | `/desktop/email/google/sync` | Review recent Gmail metadata for status suggestions |
+| GET | `/desktop/email/microsoft` | View the local Outlook connection status |
+| POST | `/desktop/email/microsoft/connect` | Start Microsoft public-client OAuth + PKCE |
+| DELETE | `/desktop/email/microsoft` | Delete the local Microsoft connection |
+| POST | `/desktop/email/microsoft/sync` | Review recent Outlook metadata for status suggestions |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -225,7 +229,11 @@ Desktop users can also connect Gmail from **Account settings → Gmail status sy
 
 For beta testing, create a Google Cloud project, enable the Gmail API, configure the OAuth consent screen, add the tester account, and create a **Desktop app** OAuth client. Paste that public client ID into InternTrack when connecting. The app requests the restricted `gmail.metadata` scope; a public commercial release must complete Google's OAuth app verification before distributing this feature broadly. A verified project client ID can be supplied with `GOOGLE_OAUTH_CLIENT_ID` for release builds.
 
-Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. Gmail sync is an inbox-reading integration and does not send email or store an email password.
+Microsoft Outlook and Microsoft 365 accounts use the same local-first review flow. InternTrack requests the delegated `Mail.ReadBasic` permission and asks Microsoft Graph for only message ID, subject, sender, and received date. Microsoft does not return message bodies, previews, attachments, or extended properties under that permission.
+
+For Microsoft beta testing, register an application in Microsoft Entra, choose the supported account types you intend to test, and add `http://localhost` under **Authentication → Mobile and desktop applications**. Enable public-client flows and add delegated Microsoft Graph permissions `User.Read` and `Mail.ReadBasic`; do not create or embed a client secret. Paste the Application (client) ID into InternTrack, or set `MICROSOFT_OAUTH_CLIENT_ID` in a release build. Disconnecting removes the DPAPI-encrypted tokens from the computer; users can separately revoke the app's consent from their Microsoft account.
+
+Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. Inbox sync does not send email, store an email password, or apply a suggested status without confirmation.
 
 ## Run Tests
 
@@ -382,6 +390,8 @@ Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQ
 Packaged InternTrack as a local-first Windows application with Tauri, PyInstaller, FastAPI, SQLite, automated migrations, process lifecycle management, and a GitHub Actions pipeline that produces an installable NSIS artifact.
 
 Integrated privacy-first Gmail OAuth with PKCE, DPAPI-encrypted tokens, metadata-only inbox sync, deterministic application matching, and user-approved status updates without storing email bodies.
+
+Extended the local-first email workflow to Outlook and Microsoft 365 using public-client OAuth with PKCE, least-privilege Microsoft Graph access, encrypted token storage, and provider-independent status matching.
 
 ## Product Roadmap
 

@@ -2,17 +2,20 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef
 import {
   ApiError,
   connectDesktopGoogle,
+  connectDesktopMicrosoft,
   createApplication,
   deleteAccount,
   deleteApplication,
   deleteDesktopAiSettings,
   disconnectDesktopGoogle,
+  disconnectDesktopMicrosoft,
   downloadCsv,
   getApplications,
   getBetaProgress,
   getCurrentUser,
   getDesktopAiSettings,
   getDesktopGoogleConnection,
+  getDesktopMicrosoftConnection,
   getRuntimeInfo,
   getReminderSettings,
   getStats,
@@ -22,6 +25,7 @@ import {
   requestEmailVerification,
   submitBetaFeedback,
   syncDesktopGoogle,
+  syncDesktopMicrosoft,
   updateDesktopAiSettings,
   updateReminderSettings,
   verifyEmail,
@@ -33,8 +37,8 @@ import {
   type AiJobDraft,
   type BetaProgress,
   type DesktopAiSettings,
-  type DesktopGoogleConnection,
-  type GmailStatusSuggestion,
+  type DesktopEmailConnection,
+  type EmailStatusSuggestion,
   type ApplicationInput,
   type ApplicationStats,
   type ApplicationStatus,
@@ -65,6 +69,10 @@ const EMPTY_STATS: ApplicationStats = {
 function today(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function looksLikeMicrosoftClientId(value: string): boolean {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
 const EMPTY_FORM: ApplicationInput = {
@@ -294,23 +302,31 @@ function AccountDialog({
   const [apiKey, setApiKey] = useState("");
   const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
   const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
-  const [googleConnection, setGoogleConnection] = useState<DesktopGoogleConnection | null>(null);
+  const [googleConnection, setGoogleConnection] = useState<DesktopEmailConnection | null>(null);
   const [googleClientId, setGoogleClientId] = useState("");
   const [gmailBusy, setGmailBusy] = useState(false);
   const [gmailConnecting, setGmailConnecting] = useState(false);
   const [gmailMessage, setGmailMessage] = useState("");
   const [gmailAuthorizationUrl, setGmailAuthorizationUrl] = useState("");
-  const [gmailSuggestions, setGmailSuggestions] = useState<GmailStatusSuggestion[]>([]);
+  const [gmailSuggestions, setGmailSuggestions] = useState<EmailStatusSuggestion[]>([]);
+  const [microsoftConnection, setMicrosoftConnection] = useState<DesktopEmailConnection | null>(null);
+  const [microsoftClientId, setMicrosoftClientId] = useState("");
+  const [outlookBusy, setOutlookBusy] = useState(false);
+  const [outlookConnecting, setOutlookConnecting] = useState(false);
+  const [outlookMessage, setOutlookMessage] = useState("");
+  const [outlookAuthorizationUrl, setOutlookAuthorizationUrl] = useState("");
+  const [outlookSuggestions, setOutlookSuggestions] = useState<EmailStatusSuggestion[]>([]);
 
   useEffect(() => {
     if (desktopMode) {
       setReminderBusy(false);
       let active = true;
-      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection()])
-        .then(([nextAiSettings, nextGoogleConnection]) => {
+      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection(), getDesktopMicrosoftConnection()])
+        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection]) => {
           if (!active) return;
           setAiSettings(nextAiSettings);
           setGoogleConnection(nextGoogleConnection);
+          setMicrosoftConnection(nextMicrosoftConnection);
         })
         .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."));
       return () => { active = false; };
@@ -352,6 +368,33 @@ function AccountDialog({
     const timer = window.setInterval(() => void checkConnection(), 2500);
     return () => { active = false; window.clearInterval(timer); };
   }, [gmailConnecting]);
+
+  useEffect(() => {
+    if (!outlookConnecting) return;
+    let active = true;
+    let attempts = 0;
+    async function checkConnection() {
+      attempts += 1;
+      try {
+        const nextConnection = await getDesktopMicrosoftConnection();
+        if (!active) return;
+        setMicrosoftConnection(nextConnection);
+        if (nextConnection.connected) {
+          setOutlookConnecting(false);
+          setOutlookAuthorizationUrl("");
+          setOutlookMessage(`Connected ${nextConnection.account_email ?? "Microsoft Outlook"}.`);
+        } else if (attempts >= 48) {
+          setOutlookConnecting(false);
+          setOutlookMessage("Connection timed out. Start the Microsoft connection again.");
+        }
+      } catch {
+        if (active && attempts >= 48) setOutlookConnecting(false);
+      }
+    }
+    void checkConnection();
+    const timer = window.setInterval(() => void checkConnection(), 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [outlookConnecting]);
 
   async function handleReminderSubmit(event: FormEvent) {
     event.preventDefault();
@@ -451,7 +494,7 @@ function AccountDialog({
     }
   }
 
-  async function handleApplyGmailSuggestion(suggestion: GmailStatusSuggestion) {
+  async function handleApplyGmailSuggestion(suggestion: EmailStatusSuggestion) {
     setGmailBusy(true);
     setError("");
     try {
@@ -462,6 +505,68 @@ function AccountDialog({
       setError(caught instanceof Error ? caught.message : "Could not apply this suggestion.");
     } finally {
       setGmailBusy(false);
+    }
+  }
+
+  async function handleMicrosoftConnect() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      const result = await connectDesktopMicrosoft(microsoftClientId.trim());
+      setOutlookAuthorizationUrl(result.authorization_url);
+      setOutlookConnecting(true);
+      setOutlookMessage(result.browser_opened ? "Finish granting access in your browser." : "Open the authorization link to continue.");
+      if (!result.browser_opened) window.open(result.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start Microsoft authorization.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleMicrosoftDisconnect() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      await disconnectDesktopMicrosoft();
+      setMicrosoftConnection(await getDesktopMicrosoftConnection());
+      setOutlookSuggestions([]);
+      setOutlookMessage("Microsoft Outlook disconnected and local tokens removed.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not disconnect Microsoft Outlook.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleMicrosoftSync() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      const result = await syncDesktopMicrosoft();
+      setOutlookSuggestions(result.suggestions);
+      setOutlookMessage(`${result.scanned_messages} recent inbox messages checked · ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sync Microsoft Outlook.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleApplyOutlookSuggestion(suggestion: EmailStatusSuggestion) {
+    setOutlookBusy(true);
+    setError("");
+    try {
+      await updateApplication(suggestion.application_id, { status: suggestion.suggested_status });
+      setOutlookSuggestions((current) => current.filter((item) => item.message_id !== suggestion.message_id));
+      setOutlookMessage(`${suggestion.company} updated to ${STATUS_LABELS[suggestion.suggested_status]}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not apply this suggestion.");
+    } finally {
+      setOutlookBusy(false);
     }
   }
 
@@ -508,6 +613,20 @@ function AccountDialog({
           </>}
           {gmailMessage && <p className="gmail-message" role="status">{gmailMessage}</p>}
           {gmailSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{gmailSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={gmailBusy} onClick={() => void handleApplyGmailSuggestion(suggestion)}>Apply update</button></article>)}</div>}
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings gmail-settings">
+          <div className="ai-settings-heading"><div><h3>Microsoft Outlook status sync</h3><p>Review basic inbox metadata from Outlook.com or Microsoft 365. Email bodies and attachments are not requested.</p></div>{microsoftConnection && <span className={microsoftConnection.connected ? "configured" : ""}>{microsoftConnection.connected ? "Connected" : "Not connected"}</span>}</div>
+          {!microsoftConnection ? <p className="settings-loading">Loading Microsoft settings…</p> : microsoftConnection.connected ? <>
+            <p className="gmail-account">Connected account: <strong>{microsoftConnection.account_email}</strong></p>
+            <div className="gmail-actions"><button className="danger-link" type="button" disabled={outlookBusy} onClick={() => void handleMicrosoftDisconnect()}>Disconnect</button><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleMicrosoftSync()}>{outlookBusy ? "Working…" : "Check recent mail"}</button></div>
+          </> : <>
+            {!microsoftConnection.configured && <label>Microsoft Application (client) ID<input type="text" autoComplete="off" maxLength={36} value={microsoftClientId} onChange={(event) => setMicrosoftClientId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /><small>Create a public desktop client in Microsoft Entra for beta testing. A registered client ID can be embedded in release builds.</small></label>}
+            <p className="gmail-privacy">InternTrack requests delegated Mail.ReadBasic access and selects only sender, subject, and received date. Every status change still requires your approval.</p>
+            <div className="gmail-actions"><button className="button secondary compact" type="button" disabled={outlookBusy || outlookConnecting || (!microsoftConnection.configured && !looksLikeMicrosoftClientId(microsoftClientId))} onClick={() => void handleMicrosoftConnect()}>{outlookConnecting ? "Waiting for Microsoft…" : outlookBusy ? "Opening…" : "Connect Microsoft Outlook"}</button></div>
+            {outlookAuthorizationUrl && <a className="gmail-auth-link" href={outlookAuthorizationUrl} target="_blank" rel="noopener noreferrer">Open Microsoft authorization</a>}
+          </>}
+          {outlookMessage && <p className="gmail-message" role="status">{outlookMessage}</p>}
+          {outlookSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{outlookSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleApplyOutlookSuggestion(suggestion)}>Apply update</button></article>)}</div>}
         </section>}
         {!confirmingDelete && !desktopMode && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
           <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>

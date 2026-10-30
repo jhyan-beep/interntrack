@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import re
 import secrets
 import time
 from dataclasses import dataclass
@@ -16,7 +15,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.desktop_secrets import DesktopJsonSecretStore
-from app.models import ApplicationStatus, InternshipApplication
+from app.email_sync import EmailMessageMetadata
 
 
 GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -44,14 +43,6 @@ class PendingAuthorization:
     expires_at: float
 
 
-@dataclass(frozen=True)
-class GmailMessageMetadata:
-    message_id: str
-    subject: str
-    sender: str
-    received_at: datetime | None
-
-
 _pending_authorizations: dict[str, PendingAuthorization] = {}
 _pending_lock = Lock()
 
@@ -76,7 +67,7 @@ def create_authorization_url(
     cleaned_client_id = _validate_client_id(client_id)
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = _base64url(hashlib.sha256(code_verifier.encode("ascii")).digest())
-    state = secrets.token_urlsafe(32)
+    state = f"google.{secrets.token_urlsafe(32)}"
     expires_at = time.time() + AUTHORIZATION_TTL_SECONDS
     pending = PendingAuthorization(
         user_id=user_id,
@@ -256,7 +247,7 @@ def _parse_message_date(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def list_recent_metadata(access_token: str, max_results: int = 25) -> list[GmailMessageMetadata]:
+def list_recent_metadata(access_token: str, max_results: int = 25) -> list[EmailMessageMetadata]:
     headers = {"Authorization": f"Bearer {access_token}"}
     try:
         with httpx.Client(timeout=20, headers=headers) as client:
@@ -265,7 +256,7 @@ def list_recent_metadata(access_token: str, max_results: int = 25) -> list[Gmail
                 params={"maxResults": max_results, "labelIds": "INBOX"},
             )
             payload = _response_json(response, "Could not list Gmail messages")
-            messages: list[GmailMessageMetadata] = []
+            messages: list[EmailMessageMetadata] = []
             for item in payload.get("messages", []):
                 message_id = item.get("id")
                 if not isinstance(message_id, str):
@@ -281,7 +272,7 @@ def list_recent_metadata(access_token: str, max_results: int = 25) -> list[Gmail
                 )
                 detail = _response_json(detail_response, "Could not read Gmail message metadata")
                 messages.append(
-                    GmailMessageMetadata(
+                    EmailMessageMetadata(
                         message_id=message_id,
                         subject=_header_value(detail, "Subject"),
                         sender=_header_value(detail, "From"),
@@ -293,111 +284,3 @@ def list_recent_metadata(access_token: str, max_results: int = 25) -> list[Gmail
         raise GmailProviderError("Could not sync Gmail") from exc
     except httpx.HTTPError as exc:
         raise GmailProviderError("Could not reach Gmail") from exc
-
-
-_COMPANY_STOP_WORDS = {
-    "inc",
-    "llc",
-    "corp",
-    "corporation",
-    "company",
-    "co",
-    "group",
-    "systems",
-    "solutions",
-    "technology",
-    "technologies",
-}
-_STATUS_PATTERNS: tuple[tuple[ApplicationStatus, tuple[str, ...]], ...] = (
-    (
-        ApplicationStatus.REJECTED,
-        ("not moving forward", "not selected", "other candidates", "we regret", "unfortunately"),
-    ),
-    (
-        ApplicationStatus.OFFER,
-        ("offer letter", "job offer", "internship offer", "pleased to offer"),
-    ),
-    (
-        ApplicationStatus.INTERVIEW,
-        ("interview", "schedule a call", "next steps", "technical assessment", "coding assessment"),
-    ),
-    (
-        ApplicationStatus.APPLIED,
-        ("application received", "received your application", "application confirmation", "thank you for applying"),
-    ),
-)
-_ALLOWED_TRANSITIONS = {
-    ApplicationStatus.SAVED: {
-        ApplicationStatus.APPLIED,
-        ApplicationStatus.INTERVIEW,
-        ApplicationStatus.OFFER,
-        ApplicationStatus.REJECTED,
-    },
-    ApplicationStatus.APPLIED: {
-        ApplicationStatus.INTERVIEW,
-        ApplicationStatus.OFFER,
-        ApplicationStatus.REJECTED,
-    },
-    ApplicationStatus.INTERVIEW: {ApplicationStatus.OFFER, ApplicationStatus.REJECTED},
-}
-
-
-def _normalized_words(value: str) -> list[str]:
-    return [word for word in re.findall(r"[a-z0-9]+", value.lower()) if word]
-
-
-def _matches_company(company: str, message_text: str) -> bool:
-    company_words = [
-        word for word in _normalized_words(company) if word not in _COMPANY_STOP_WORDS
-    ]
-    if not company_words:
-        return False
-    message_words = set(_normalized_words(message_text))
-    acronym = "".join(word[0] for word in company_words)
-    return all(word in message_words for word in company_words) or (
-        len(acronym) >= 2 and acronym in message_words
-    )
-
-
-def suggest_status_updates(
-    messages: list[GmailMessageMetadata],
-    applications: list[InternshipApplication],
-) -> list[dict]:
-    suggestions: list[dict] = []
-    suggested_applications: set[int] = set()
-    for message in messages:
-        text = f"{message.subject} {message.sender}".lower()
-        detected: tuple[ApplicationStatus, str] | None = None
-        for next_status, phrases in _STATUS_PATTERNS:
-            matched_phrase = next((phrase for phrase in phrases if phrase in text), None)
-            if matched_phrase:
-                detected = (next_status, matched_phrase)
-                break
-        if detected is None:
-            continue
-
-        next_status, matched_phrase = detected
-        for application in applications:
-            if application.id in suggested_applications:
-                continue
-            if next_status not in _ALLOWED_TRANSITIONS.get(application.status, set()):
-                continue
-            if not _matches_company(application.company, text):
-                continue
-            suggestions.append(
-                {
-                    "message_id": message.message_id,
-                    "application_id": application.id,
-                    "company": application.company,
-                    "role": application.role,
-                    "current_status": application.status,
-                    "suggested_status": next_status,
-                    "subject": message.subject or "(No subject)",
-                    "sender": message.sender,
-                    "received_at": message.received_at,
-                    "reason": f'Email matched "{matched_phrase}" and {application.company}.',
-                }
-            )
-            suggested_applications.add(application.id)
-            break
-    return suggestions

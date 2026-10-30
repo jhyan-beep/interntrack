@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from app import gmail, main
 from app.database import get_settings
 from app.desktop_secrets import DesktopJsonSecretStore
+from app.email_sync import EmailMessageMetadata, suggest_status_updates
 from app.models import ApplicationStatus
 
 
@@ -66,7 +67,7 @@ def test_email_metadata_creates_reviewable_forward_only_suggestion() -> None:
         )
     ]
     messages = [
-        gmail.GmailMessageMetadata(
+        EmailMessageMetadata(
             message_id="gmail-1",
             subject="Example Systems interview — choose a time",
             sender="University Recruiting <careers@example.com>",
@@ -74,7 +75,7 @@ def test_email_metadata_creates_reviewable_forward_only_suggestion() -> None:
         )
     ]
 
-    suggestions = gmail.suggest_status_updates(messages, applications)
+    suggestions = suggest_status_updates(messages, applications)
 
     assert len(suggestions) == 1
     assert suggestions[0]["application_id"] == 7
@@ -149,7 +150,7 @@ async def test_desktop_gmail_connection_and_sync(
         gmail,
         "list_recent_metadata",
         lambda _token: [
-            gmail.GmailMessageMetadata(
+            EmailMessageMetadata(
                 message_id="gmail-1",
                 subject="Example Systems interview invitation",
                 sender="recruiting@example.com",

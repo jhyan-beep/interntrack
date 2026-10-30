@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +18,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app import crud, gmail
+from app import crud, gmail, outlook
 from app.ai import AiNotConfiguredError, AiProviderError, parse_job_posting
 from app.auth import (
     CurrentUser,
@@ -33,6 +34,7 @@ from app.beta import get_beta_progress, record_product_event, save_beta_feedback
 from app.database import get_db, get_settings
 from app.desktop_secrets import DesktopJsonSecretStore, DesktopSecretError, DesktopSecretStore
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
+from app.email_sync import suggest_status_updates
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
 from app.models import (
     ApplicationStatus,
@@ -57,8 +59,12 @@ from app.schemas import (
     DesktopGoogleConnectionRead,
     DesktopGoogleConnectRead,
     DesktopGoogleConnectRequest,
+    DesktopMicrosoftConnectionRead,
+    DesktopMicrosoftConnectRead,
+    DesktopMicrosoftConnectRequest,
     EmailTokenRequest,
     GmailSyncRead,
+    OutlookSyncRead,
     PaginatedApplications,
     PasswordForgotRequest,
     PasswordResetRequest,
@@ -83,7 +89,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.9.0",
+    version="2.10.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -148,6 +154,19 @@ def _desktop_google_store(user_id: int) -> DesktopJsonSecretStore:
         _desktop_data_directory(),
         f"google-oauth-user-{user_id}.dpapi",
     )
+
+
+def _desktop_microsoft_store(user_id: int) -> DesktopJsonSecretStore:
+    return DesktopJsonSecretStore(
+        _desktop_data_directory(),
+        f"microsoft-oauth-user-{user_id}.dpapi",
+    )
+
+
+def _microsoft_redirect_uri() -> str:
+    parsed = urlsplit(settings.app_base_url)
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"http://localhost{port}/"
 
 
 @app.get("/desktop/ai-settings", response_model=DesktopAiSettingsRead)
@@ -253,7 +272,7 @@ def connect_desktop_google(
     )
 
 
-def _google_callback_page(title: str, message: str, success: bool) -> str:
+def _oauth_callback_page(title: str, message: str, success: bool) -> str:
     color = "#216845" if success else "#a53a2f"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
@@ -265,7 +284,7 @@ def _google_callback_page(title: str, message: str, success: bool) -> str:
 
 
 @app.get("/", include_in_schema=False)
-def desktop_google_callback(
+def desktop_oauth_callback(
     state: str | None = None,
     code: str | None = None,
     error: str | None = None,
@@ -276,25 +295,42 @@ def desktop_google_callback(
             return FileResponse(index_file)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     _desktop_data_directory()
+    provider_name = "Email"
     try:
-        pending = gmail.consume_authorization(state)
-        if error or not code:
-            raise gmail.GmailAuthorizationError("Gmail access was not granted")
-        tokens = gmail.exchange_authorization_code(pending, code)
-        store = _desktop_google_store(pending.user_id)
-        existing = store.load() or {}
-        if not tokens.get("refresh_token") and existing.get("refresh_token"):
-            tokens["refresh_token"] = existing["refresh_token"]
-        tokens["account_email"] = gmail.fetch_profile_email(str(tokens["access_token"]))
-        store.save(tokens)
-    except (gmail.GmailProviderError, DesktopSecretError) as exc:
+        if state.startswith("google."):
+            provider_name = "Gmail"
+            pending = gmail.consume_authorization(state)
+            if error or not code:
+                raise gmail.GmailAuthorizationError("Gmail access was not granted")
+            tokens = gmail.exchange_authorization_code(pending, code)
+            store = _desktop_google_store(pending.user_id)
+            existing = store.load() or {}
+            if not tokens.get("refresh_token") and existing.get("refresh_token"):
+                tokens["refresh_token"] = existing["refresh_token"]
+            tokens["account_email"] = gmail.fetch_profile_email(str(tokens["access_token"]))
+            store.save(tokens)
+        elif state.startswith("microsoft."):
+            provider_name = "Microsoft Outlook"
+            pending = outlook.consume_authorization(state)
+            if error or not code:
+                raise outlook.OutlookAuthorizationError("Microsoft access was not granted")
+            tokens = outlook.exchange_authorization_code(pending, code)
+            store = _desktop_microsoft_store(pending.user_id)
+            existing = store.load() or {}
+            if not tokens.get("refresh_token") and existing.get("refresh_token"):
+                tokens["refresh_token"] = existing["refresh_token"]
+            tokens["account_email"] = outlook.fetch_profile_email(str(tokens["access_token"]))
+            store.save(tokens)
+        else:
+            raise outlook.OutlookAuthorizationError("Unknown email authorization request")
+    except (gmail.GmailProviderError, outlook.OutlookProviderError, DesktopSecretError) as exc:
         return HTMLResponse(
-            _google_callback_page("Gmail connection failed", str(exc), False),
+            _oauth_callback_page(f"{provider_name} connection failed", str(exc), False),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     return HTMLResponse(
-        _google_callback_page(
-            "Gmail connected",
+        _oauth_callback_page(
+            f"{provider_name} connected",
             f"InternTrack can now review email metadata for {tokens['account_email']}.",
             True,
         )
@@ -342,8 +378,109 @@ def sync_desktop_google(
             .order_by(InternshipApplication.updated_at.desc())
         )
     )
-    suggestions = gmail.suggest_status_updates(messages, applications)
+    suggestions = suggest_status_updates(messages, applications)
     return GmailSyncRead(scanned_messages=len(messages), suggestions=suggestions)
+
+
+@app.get("/desktop/email/microsoft", response_model=DesktopMicrosoftConnectionRead)
+def get_desktop_microsoft_connection(user: CurrentUser) -> DesktopMicrosoftConnectionRead:
+    try:
+        tokens = _desktop_microsoft_store(user.id).load()
+    except DesktopSecretError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not read the saved Microsoft connection",
+        ) from None
+    return DesktopMicrosoftConnectionRead(
+        configured=bool(settings.microsoft_oauth_client_id or (tokens or {}).get("client_id")),
+        connected=bool(tokens and (tokens.get("refresh_token") or tokens.get("access_token"))),
+        account_email=(tokens or {}).get("account_email"),
+        scope=(tokens or {}).get("scope"),
+    )
+
+
+@app.post("/desktop/email/microsoft/connect", response_model=DesktopMicrosoftConnectRead)
+def connect_desktop_microsoft(
+    connection: DesktopMicrosoftConnectRequest,
+    user: CurrentUser,
+) -> DesktopMicrosoftConnectRead:
+    store = _desktop_microsoft_store(user.id)
+    try:
+        existing = store.load()
+    except DesktopSecretError:
+        existing = None
+    client_id = (
+        connection.client_id
+        or settings.microsoft_oauth_client_id
+        or (existing or {}).get("client_id")
+    )
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A Microsoft Application (client) ID is required",
+        )
+    try:
+        authorization_url, expires_at = outlook.create_authorization_url(
+            user.id,
+            client_id,
+            _microsoft_redirect_uri(),
+            login_hint=user.email,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    try:
+        browser_opened = webbrowser.open(authorization_url, new=2)
+    except webbrowser.Error:
+        browser_opened = False
+    return DesktopMicrosoftConnectRead(
+        authorization_url=authorization_url,
+        expires_at=expires_at,
+        browser_opened=browser_opened,
+    )
+
+
+@app.delete("/desktop/email/microsoft", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect_desktop_microsoft(user: CurrentUser) -> Response:
+    try:
+        _desktop_microsoft_store(user.id).delete()
+    except (DesktopSecretError, OSError):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Windows could not remove the Microsoft connection",
+        ) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/desktop/email/microsoft/sync", response_model=OutlookSyncRead)
+def sync_desktop_microsoft(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> OutlookSyncRead:
+    store = _desktop_microsoft_store(user.id)
+    try:
+        tokens = store.load()
+        if not tokens:
+            raise outlook.OutlookAuthorizationError("Connect Microsoft Outlook before syncing")
+        access_token, _ = outlook.ensure_access_token(tokens, store)
+        messages = outlook.list_recent_metadata(access_token)
+    except outlook.OutlookAuthorizationError as exc:
+        store.delete()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except (outlook.OutlookProviderError, DesktopSecretError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    applications = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(InternshipApplication.user_id == user.id)
+            .order_by(InternshipApplication.updated_at.desc())
+        )
+    )
+    suggestions = suggest_status_updates(messages, applications)
+    return OutlookSyncRead(scanned_messages=len(messages), suggestions=suggestions)
 
 
 @app.post("/auth/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -610,6 +747,10 @@ def delete_account(
             if tokens:
                 gmail.revoke_tokens(tokens)
             google_store.delete()
+        except (DesktopSecretError, OSError):
+            pass
+        try:
+            _desktop_microsoft_store(user.id).delete()
         except (DesktopSecretError, OSError):
             pass
     db.delete(user)
