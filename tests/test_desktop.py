@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -116,5 +117,89 @@ async def test_desktop_ai_settings_are_hidden_in_web_mode(
     assert registered.status_code == 201
 
     response = await anonymous_client.get("/desktop/ai-settings")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_desktop_deadline_reminder_is_acknowledged_only_once(
+    anonymous_client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "desktop")
+    monkeypatch.setattr(settings, "desktop_data_dir", tmp_path)
+    monkeypatch.setattr(main, "hash_password", lambda _password: "test-password-hash")
+    registered = await anonymous_client.post(
+        "/auth/register",
+        json={"email": "reminders@example.com", "password": "securepass123"},
+    )
+    assert registered.status_code == 201
+
+    enabled = await anonymous_client.patch(
+        "/reminders/settings",
+        json={
+            "deadline_reminders_enabled": True,
+            "deadline_reminder_days": 3,
+            "reminder_timezone": "UTC",
+        },
+    )
+    assert enabled.status_code == 200
+    current_date = datetime.now(timezone.utc).date()
+
+    due = await anonymous_client.post(
+        "/applications",
+        json={
+            "company": "Reminder Company",
+            "role": "Software Engineer Intern",
+            "status": "applied",
+            "application_date": current_date.isoformat(),
+            "deadline": (current_date + timedelta(days=1)).isoformat(),
+        },
+    )
+    assert due.status_code == 201
+    later = await anonymous_client.post(
+        "/applications",
+        json={
+            "company": "Later Company",
+            "role": "Software Engineer Intern",
+            "status": "saved",
+            "application_date": current_date.isoformat(),
+            "deadline": (current_date + timedelta(days=7)).isoformat(),
+        },
+    )
+    assert later.status_code == 201
+
+    first_scan = await anonymous_client.get("/desktop/reminders/due")
+    assert first_scan.status_code == 200
+    assert first_scan.json()["items"] == [
+        {
+            "application_id": due.json()["id"],
+            "company": "Reminder Company",
+            "role": "Software Engineer Intern",
+            "deadline": (current_date + timedelta(days=1)).isoformat(),
+            "days_remaining": 1,
+        }
+    ]
+
+    first_ack = await anonymous_client.post(
+        f"/desktop/reminders/{due.json()['id']}/acknowledge"
+    )
+    repeated_ack = await anonymous_client.post(
+        f"/desktop/reminders/{due.json()['id']}/acknowledge"
+    )
+    second_scan = await anonymous_client.get("/desktop/reminders/due")
+
+    assert first_ack.status_code == 204
+    assert repeated_ack.status_code == 204
+    assert second_scan.json()["items"] == []
+
+
+@pytest.mark.anyio
+async def test_desktop_deadline_reminders_are_hidden_in_web_mode(
+    client: AsyncClient,
+) -> None:
+    response = await client.get("/desktop/reminders/due")
 
     assert response.status_code == 404

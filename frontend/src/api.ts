@@ -8,6 +8,7 @@ import type {
   DesktopAiSettings,
   DesktopEmailConnection,
   DesktopEmailConnectResult,
+  DesktopDeadlineReminders,
   EmailSyncResult,
   InternshipApplication,
   PaginatedApplications,
@@ -199,6 +200,14 @@ export function updateReminderSettings(
     method: "PATCH",
     body: JSON.stringify(settings)
   });
+}
+
+export function getDueDesktopReminders(): Promise<DesktopDeadlineReminders> {
+  return request("/desktop/reminders/due");
+}
+
+export function acknowledgeDesktopReminder(applicationId: number): Promise<void> {
+  return request(`/desktop/reminders/${applicationId}/acknowledge`, { method: "POST" });
 }
 
 export function verifyEmail(token: string): Promise<User> {

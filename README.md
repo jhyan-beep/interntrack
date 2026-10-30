@@ -118,6 +118,8 @@ Caddyfile              Automatic HTTPS reverse proxy
 | POST | `/desktop/email/microsoft/connect` | Start Microsoft public-client OAuth + PKCE |
 | DELETE | `/desktop/email/microsoft` | Delete the local Microsoft connection |
 | POST | `/desktop/email/microsoft/sync` | Review recent Outlook metadata for status suggestions |
+| GET | `/desktop/reminders/due` | List due, unacknowledged local deadline reminders |
+| POST | `/desktop/reminders/{application_id}/acknowledge` | Record a displayed local reminder |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -225,6 +227,8 @@ Pull requests that touch desktop runtime files also run the `Windows Desktop` wo
 
 Desktop users can enable AI import from **Account settings → AI import** with their own OpenAI API key. The key is encrypted at rest with Windows DPAPI, tied to the current Windows account, and never returned to the frontend after saving. No provider secret is embedded in the installer. Removing the key immediately disables AI import and deletes the encrypted local file.
 
+Desktop users can enable **Local deadline reminders** without an email or cloud service. The installed Tauri app requests Windows notification permission, checks when the app launches, becomes visible, and every 30 minutes while running, then displays one native notification when an active application enters the selected reminder window. A reminder is acknowledged in the local SQLite database only after the notification call succeeds, preventing repeated alerts for the same application deadline while allowing a changed deadline to create a new reminder.
+
 Desktop users can also connect Gmail from **Account settings → Gmail status sync**. InternTrack opens Google authorization in the system browser, uses OAuth PKCE with a loopback callback, and encrypts the resulting tokens with Windows DPAPI. Sync reads only sender, subject, and date metadata from up to 25 recent inbox messages. It never downloads message bodies and never changes an application until the user approves a suggestion.
 
 For beta testing, create a Google Cloud project, enable the Gmail API, configure the OAuth consent screen, add the tester account, and create a **Desktop app** OAuth client. Paste that public client ID into InternTrack when connecting. The app requests the restricted `gmail.metadata` scope; a public commercial release must complete Google's OAuth app verification before distributing this feature broadly. A verified project client ID can be supplied with `GOOGLE_OAUTH_CLIENT_ID` for release builds.
@@ -233,7 +237,7 @@ Microsoft Outlook and Microsoft 365 accounts use the same local-first review flo
 
 For Microsoft beta testing, register an application in Microsoft Entra, choose the supported account types you intend to test, and add `http://localhost` under **Authentication → Mobile and desktop applications**. Enable public-client flows and add delegated Microsoft Graph permissions `User.Read` and `Mail.ReadBasic`; do not create or embed a client secret. Paste the Application (client) ID into InternTrack, or set `MICROSOFT_OAUTH_CLIENT_ID` in a release build. Disconnecting removes the DPAPI-encrypted tokens from the computer; users can separately revoke the app's consent from their Microsoft account.
 
-Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. Inbox sync does not send email, store an email password, or apply a suggested status without confirmation.
+Email verification, password-reset email, and cloud email reminders remain disabled in desktop mode. Local Windows reminders and inbox sync do not require a server; inbox sync does not send email, store an email password, or apply a suggested status without confirmation.
 
 ## Run Tests
 
@@ -392,6 +396,8 @@ Packaged InternTrack as a local-first Windows application with Tauri, PyInstalle
 Integrated privacy-first Gmail OAuth with PKCE, DPAPI-encrypted tokens, metadata-only inbox sync, deterministic application matching, and user-approved status updates without storing email bodies.
 
 Extended the local-first email workflow to Outlook and Microsoft 365 using public-client OAuth with PKCE, least-privilege Microsoft Graph access, encrypted token storage, and provider-independent status matching.
+
+Added idempotent Windows deadline notifications with Tauri permissions, timezone-aware FastAPI queries, SQLite delivery acknowledgements, and retry-safe foreground scheduling without a reminder server.
 
 ## Product Roadmap
 
