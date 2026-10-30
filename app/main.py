@@ -3,11 +3,12 @@ import html
 import math
 import os
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,7 @@ from app.email_sync import suggest_status_updates
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
 from app.models import (
     ApplicationStatus,
+    DeadlineReminderDelivery,
     EmailTokenPurpose,
     InternshipApplication,
     User,
@@ -62,6 +64,7 @@ from app.schemas import (
     DesktopMicrosoftConnectionRead,
     DesktopMicrosoftConnectRead,
     DesktopMicrosoftConnectRequest,
+    DesktopDeadlineRemindersRead,
     EmailTokenRequest,
     GmailSyncRead,
     OutlookSyncRead,
@@ -89,7 +92,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.10.0",
+    version="2.11.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -645,17 +648,125 @@ def get_reminder_settings(user: CurrentUser) -> User:
     return user
 
 
+_ACTIVE_REMINDER_STATUSES = {
+    ApplicationStatus.SAVED,
+    ApplicationStatus.APPLIED,
+    ApplicationStatus.INTERVIEW,
+}
+
+
+def _desktop_reminder_date(user: User) -> datetime:
+    return datetime.now(timezone.utc).astimezone(ZoneInfo(user.reminder_timezone))
+
+
+@app.get("/desktop/reminders/due", response_model=DesktopDeadlineRemindersRead)
+def get_due_desktop_reminders(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict:
+    _desktop_data_directory()
+    if not user.deadline_reminders_enabled:
+        return {"items": []}
+
+    local_date = _desktop_reminder_date(user).date()
+    latest_date = local_date + timedelta(days=user.deadline_reminder_days)
+    applications = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(
+                InternshipApplication.user_id == user.id,
+                InternshipApplication.status.in_(_ACTIVE_REMINDER_STATUSES),
+                InternshipApplication.deadline.is_not(None),
+                InternshipApplication.deadline >= local_date,
+                InternshipApplication.deadline <= latest_date,
+            )
+            .order_by(InternshipApplication.deadline.asc(), InternshipApplication.id.asc())
+            .limit(20)
+        )
+    )
+    delivered = {
+        (application_id, deadline)
+        for application_id, deadline in db.execute(
+            select(
+                DeadlineReminderDelivery.application_id,
+                DeadlineReminderDelivery.deadline,
+            ).where(DeadlineReminderDelivery.user_id == user.id)
+        ).all()
+    }
+    return {
+        "items": [
+            {
+                "application_id": application.id,
+                "company": application.company,
+                "role": application.role,
+                "deadline": application.deadline,
+                "days_remaining": (application.deadline - local_date).days,
+            }
+            for application in applications
+            if (application.id, application.deadline) not in delivered
+        ]
+    }
+
+
+@app.post(
+    "/desktop/reminders/{application_id}/acknowledge",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def acknowledge_desktop_reminder(
+    application_id: int,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    _desktop_data_directory()
+    application = db.scalar(
+        select(InternshipApplication).where(
+            InternshipApplication.id == application_id,
+            InternshipApplication.user_id == user.id,
+        )
+    )
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    if not user.deadline_reminders_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Local deadline reminders are disabled",
+        )
+
+    local_date = _desktop_reminder_date(user).date()
+    days_remaining = (
+        (application.deadline - local_date).days if application.deadline is not None else -1
+    )
+    if (
+        application.status not in _ACTIVE_REMINDER_STATUSES
+        or days_remaining < 0
+        or days_remaining > user.deadline_reminder_days
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This application is not currently due for a reminder",
+        )
+
+    db.add(
+        DeadlineReminderDelivery(
+            user_id=user.id,
+            application_id=application.id,
+            deadline=application.deadline,
+            days_before=days_remaining,
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.patch("/reminders/settings", response_model=ReminderSettingsRead)
 def update_reminder_settings(
     reminder_in: ReminderSettingsUpdate,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    if settings.environment == "desktop" and reminder_in.deadline_reminders_enabled is True:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email reminders require the hosted web app",
-        )
     if reminder_in.deadline_reminders_enabled is True and not user.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

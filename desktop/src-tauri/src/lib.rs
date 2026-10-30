@@ -41,6 +41,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_directory = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&data_directory)?;

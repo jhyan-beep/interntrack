@@ -1,5 +1,7 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import {
+  acknowledgeDesktopReminder,
   ApiError,
   connectDesktopGoogle,
   connectDesktopMicrosoft,
@@ -16,6 +18,7 @@ import {
   getDesktopAiSettings,
   getDesktopGoogleConnection,
   getDesktopMicrosoftConnection,
+  getDueDesktopReminders,
   getRuntimeInfo,
   getReminderSettings,
   getStats,
@@ -65,6 +68,48 @@ const EMPTY_STATS: ApplicationStats = {
   by_status: {},
   upcoming_deadlines: []
 };
+
+async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Promise<boolean> {
+  try {
+    if (await isPermissionGranted()) return true;
+    if (!requestIfNeeded) return false;
+    return (await requestPermission()) === "granted";
+  } catch {
+    return false;
+  }
+}
+
+function desktopReminderTitle(daysRemaining: number): string {
+  if (daysRemaining === 0) return "Application deadline today";
+  if (daysRemaining === 1) return "Application deadline tomorrow";
+  return `Application deadline in ${daysRemaining} days`;
+}
+
+let desktopReminderDeliveryInFlight: Promise<void> | null = null;
+
+async function showDueDesktopReminders(requestPermissionIfNeeded = false): Promise<boolean> {
+  if (!(await ensureDesktopNotificationPermission(requestPermissionIfNeeded))) return false;
+  if (desktopReminderDeliveryInFlight) {
+    await desktopReminderDeliveryInFlight;
+    return true;
+  }
+  desktopReminderDeliveryInFlight = (async () => {
+    const { items } = await getDueDesktopReminders();
+    for (const reminder of items) {
+      await sendNotification({
+        title: desktopReminderTitle(reminder.days_remaining),
+        body: `${reminder.company} · ${reminder.role}`
+      });
+      await acknowledgeDesktopReminder(reminder.application_id);
+    }
+  })();
+  try {
+    await desktopReminderDeliveryInFlight;
+  } finally {
+    desktopReminderDeliveryInFlight = null;
+  }
+  return true;
+}
 
 function today(): string {
   const now = new Date();
@@ -319,16 +364,20 @@ function AccountDialog({
 
   useEffect(() => {
     if (desktopMode) {
-      setReminderBusy(false);
       let active = true;
-      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection(), getDesktopMicrosoftConnection()])
-        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection]) => {
+      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection(), getDesktopMicrosoftConnection(), getReminderSettings()])
+        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders]) => {
           if (!active) return;
           setAiSettings(nextAiSettings);
           setGoogleConnection(nextGoogleConnection);
           setMicrosoftConnection(nextMicrosoftConnection);
+          setReminders({
+            ...nextReminders,
+            reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+          });
         })
-        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."));
+        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."))
+        .finally(() => active && setReminderBusy(false));
       return () => { active = false; };
     }
     let active = true;
@@ -403,8 +452,19 @@ function AccountDialog({
     setReminderSaved(false);
     setError("");
     try {
-      setReminders(await updateReminderSettings(reminders));
+      if (
+        desktopMode
+        && reminders.deadline_reminders_enabled
+        && !(await ensureDesktopNotificationPermission(true))
+      ) {
+        throw new Error("Windows notification permission is required. Open the installed desktop app and allow notifications.");
+      }
+      const nextReminders = await updateReminderSettings(reminders);
+      setReminders(nextReminders);
       setReminderSaved(true);
+      if (desktopMode && nextReminders.deadline_reminders_enabled) {
+        await showDueDesktopReminders();
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save reminder settings.");
     } finally {
@@ -592,7 +652,7 @@ function AccountDialog({
           <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
         </div>
         <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{desktopMode ? "Local account · Data stored on this computer." : `${user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.`}</small></div></div>
-        {!confirmingDelete && desktopMode && <div className="reminder-settings"><div><h3>Local-first workspace</h3><p>Applications are stored in a private SQLite database on this computer. Cloud email reminders are not enabled in this desktop release.</p></div></div>}
+        {!confirmingDelete && desktopMode && <div className="reminder-settings"><div><h3>Local-first workspace</h3><p>Applications and reminder history are stored in a private SQLite database on this computer. No reminder server is required.</p></div></div>}
         {!confirmingDelete && desktopMode && <form className="reminder-settings ai-settings" onSubmit={handleAiSettingsSubmit}>
           <div className="ai-settings-heading"><div><h3>AI import</h3><p>Use your own OpenAI API key to turn pasted job descriptions into application drafts.</p></div>{aiSettings && <span className={aiSettings.configured ? "configured" : ""}>{aiSettings.configured ? "Configured" : "Not configured"}</span>}</div>
           {!aiSettings ? <p className="settings-loading">Loading AI settings…</p> : <>
@@ -628,12 +688,12 @@ function AccountDialog({
           {outlookMessage && <p className="gmail-message" role="status">{outlookMessage}</p>}
           {outlookSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{outlookSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleApplyOutlookSuggestion(suggestion)}>Apply update</button></article>)}</div>}
         </section>}
-        {!confirmingDelete && !desktopMode && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
-          <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>
+        {!confirmingDelete && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
+          <div><h3>{desktopMode ? "Local deadline reminders" : "Deadline reminders"}</h3><p>{desktopMode ? "Receive one Windows notification when an active application enters your reminder window. InternTrack checks while the app is running." : "Receive one email when an active application enters your reminder window."}</p></div>
           {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
             <label className="toggle-row">
-              <span><strong>Email reminders</strong><small>{user.email_verified ? "You can turn these off at any time." : "Verify your email before enabling reminders."}</small></span>
-              <input type="checkbox" checked={reminders.deadline_reminders_enabled} disabled={!user.email_verified} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminders_enabled: event.target.checked }); }} />
+              <span><strong>{desktopMode ? "Windows notifications" : "Email reminders"}</strong><small>{desktopMode || user.email_verified ? "You can turn these off at any time." : "Verify your email before enabling reminders."}</small></span>
+              <input type="checkbox" checked={reminders.deadline_reminders_enabled} disabled={!desktopMode && !user.email_verified} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminders_enabled: event.target.checked }); }} />
             </label>
             <label className="reminder-days">Remind me before the deadline<select value={reminders.deadline_reminder_days} disabled={!reminders.deadline_reminders_enabled} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminder_days: Number(event.target.value) }); }}><option value={1}>1 day before</option><option value={3}>3 days before</option><option value={7}>7 days before</option><option value={14}>14 days before</option></select></label>
             <p className="reminder-timezone">Dates use your browser time zone: <strong>{reminders.reminder_timezone}</strong></p>
@@ -859,6 +919,34 @@ export default function App() {
   useEffect(() => { if (user) void loadApplications(); }, [loadApplications, user]);
   useEffect(() => { if (user) void loadDashboard(); }, [user]);
   useEffect(() => { if (user && !desktopMode) void recordBetaSession().catch(() => undefined); }, [user?.id, desktopMode]);
+
+  useEffect(() => {
+    if (!user || !desktopMode) return;
+    let active = true;
+    let checking = false;
+    async function checkReminders() {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        await showDueDesktopReminders();
+      } catch {
+        // A later interval or app launch can retry without interrupting the dashboard.
+      } finally {
+        checking = false;
+      }
+    }
+    function checkWhenVisible() {
+      if (document.visibilityState === "visible") void checkReminders();
+    }
+    void checkReminders();
+    const timer = window.setInterval(() => void checkReminders(), 30 * 60 * 1000);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [user?.id, desktopMode]);
 
   useEffect(() => {
     if (!toast) return;

@@ -118,6 +118,18 @@ export interface ReminderSettings {
   reminder_timezone: string;
 }
 
+export interface DesktopDeadlineReminder {
+  application_id: number;
+  company: string;
+  role: string;
+  deadline: string;
+  days_remaining: number;
+}
+
+export interface DesktopDeadlineReminders {
+  items: DesktopDeadlineReminder[];
+}
+
 export interface BetaProgress {
   application_count: number;
   email_verified: boolean;
