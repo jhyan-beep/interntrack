@@ -5,6 +5,7 @@ import type {
   AiJobDraft,
   BetaFeedback,
   BetaProgress,
+  DesktopAiSettings,
   InternshipApplication,
   PaginatedApplications,
   ReminderSettings,
@@ -85,6 +86,21 @@ export function getCurrentUser(): Promise<User> {
 
 export function getRuntimeInfo(): Promise<RuntimeInfo> {
   return request("/runtime");
+}
+
+export function getDesktopAiSettings(): Promise<DesktopAiSettings> {
+  return request("/desktop/ai-settings");
+}
+
+export function updateDesktopAiSettings(apiKey: string): Promise<DesktopAiSettings> {
+  return request("/desktop/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({ api_key: apiKey })
+  });
+}
+
+export function deleteDesktopAiSettings(): Promise<void> {
+  return request("/desktop/ai-settings", { method: "DELETE" });
 }
 
 export function recordBetaSession(): Promise<void> {

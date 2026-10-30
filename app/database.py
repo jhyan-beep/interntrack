@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Generator, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-6-luna"
     openai_timeout_seconds: int = Field(default=20, ge=5, le=60)
+    desktop_data_dir: Path | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

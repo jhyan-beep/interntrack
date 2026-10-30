@@ -4,10 +4,12 @@ import {
   createApplication,
   deleteAccount,
   deleteApplication,
+  deleteDesktopAiSettings,
   downloadCsv,
   getApplications,
   getBetaProgress,
   getCurrentUser,
+  getDesktopAiSettings,
   getRuntimeInfo,
   getReminderSettings,
   getStats,
@@ -16,6 +18,7 @@ import {
   recordBetaSession,
   requestEmailVerification,
   submitBetaFeedback,
+  updateDesktopAiSettings,
   updateReminderSettings,
   verifyEmail,
   updateApplication
@@ -25,6 +28,7 @@ import {
   STATUSES,
   type AiJobDraft,
   type BetaProgress,
+  type DesktopAiSettings,
   type ApplicationInput,
   type ApplicationStats,
   type ApplicationStatus,
@@ -261,12 +265,14 @@ function AiImportModal({
 function AccountDialog({
   user,
   desktopMode,
+  onAiAvailabilityChanged,
   onClose,
   onSignedOut,
   onDeleted
 }: {
   user: User;
   desktopMode: boolean;
+  onAiAvailabilityChanged: (available: boolean) => void;
   onClose: () => void;
   onSignedOut: () => Promise<void>;
   onDeleted: () => void;
@@ -278,11 +284,19 @@ function AccountDialog({
   const [reminders, setReminders] = useState<ReminderSettings | null>(null);
   const [reminderBusy, setReminderBusy] = useState(true);
   const [reminderSaved, setReminderSaved] = useState(false);
+  const [aiSettings, setAiSettings] = useState<DesktopAiSettings | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
+  const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
 
   useEffect(() => {
     if (desktopMode) {
       setReminderBusy(false);
-      return;
+      let active = true;
+      getDesktopAiSettings()
+        .then((nextSettings) => active && setAiSettings(nextSettings))
+        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load AI settings."));
+      return () => { active = false; };
     }
     let active = true;
     getReminderSettings()
@@ -311,6 +325,40 @@ function AccountDialog({
     }
   }
 
+  async function handleAiSettingsSubmit(event: FormEvent) {
+    event.preventDefault();
+    setAiSettingsBusy(true);
+    setAiSettingsSaved(false);
+    setError("");
+    try {
+      const nextSettings = await updateDesktopAiSettings(apiKey);
+      setAiSettings(nextSettings);
+      setApiKey("");
+      setAiSettingsSaved(true);
+      onAiAvailabilityChanged(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the API key.");
+    } finally {
+      setAiSettingsBusy(false);
+    }
+  }
+
+  async function handleRemoveAiSettings() {
+    setAiSettingsBusy(true);
+    setAiSettingsSaved(false);
+    setError("");
+    try {
+      await deleteDesktopAiSettings();
+      setAiSettings((current) => ({ configured: false, model: current?.model ?? "" }));
+      setApiKey("");
+      onAiAvailabilityChanged(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove the API key.");
+    } finally {
+      setAiSettingsBusy(false);
+    }
+  }
+
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -334,6 +382,13 @@ function AccountDialog({
         </div>
         <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{desktopMode ? "Local account · Data stored on this computer." : `${user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.`}</small></div></div>
         {!confirmingDelete && desktopMode && <div className="reminder-settings"><div><h3>Local-first workspace</h3><p>Applications are stored in a private SQLite database on this computer. Cloud email reminders are not enabled in this desktop release.</p></div></div>}
+        {!confirmingDelete && desktopMode && <form className="reminder-settings ai-settings" onSubmit={handleAiSettingsSubmit}>
+          <div className="ai-settings-heading"><div><h3>AI import</h3><p>Use your own OpenAI API key to turn pasted job descriptions into application drafts.</p></div>{aiSettings && <span className={aiSettings.configured ? "configured" : ""}>{aiSettings.configured ? "Configured" : "Not configured"}</span>}</div>
+          {!aiSettings ? <p className="settings-loading">Loading AI settings…</p> : <>
+            <label>OpenAI API key<input type="password" autoComplete="off" minLength={20} maxLength={500} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setAiSettingsSaved(false); }} placeholder={aiSettings.configured ? "Enter a new key to replace the saved key" : "Paste your API key"} /><small>The key is encrypted for your Windows account and is never shown again. Model: {aiSettings.model}</small></label>
+            <div className="reminder-save"><span aria-live="polite">{aiSettingsSaved ? "Saved" : ""}</span>{aiSettings.configured && <button className="danger-link" type="button" disabled={aiSettingsBusy} onClick={() => void handleRemoveAiSettings()}>Remove key</button>}<button className="button secondary compact" type="submit" disabled={aiSettingsBusy || apiKey.trim().length < 20}>{aiSettingsBusy ? "Saving…" : aiSettings.configured ? "Replace key" : "Enable AI import"}</button></div>
+          </>}
+        </form>}
         {!confirmingDelete && !desktopMode && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
           <div><h3>Deadline reminders</h3><p>Receive one email when an active application enters your reminder window.</p></div>
           {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
@@ -754,7 +809,7 @@ export default function App() {
       <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
-      {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>

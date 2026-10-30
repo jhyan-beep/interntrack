@@ -76,6 +76,11 @@ export interface RuntimeInfo {
   email_features_available: boolean;
 }
 
+export interface DesktopAiSettings {
+  configured: boolean;
+  model: string;
+}
+
 export interface ReminderSettings {
   deadline_reminders_enabled: boolean;
   deadline_reminder_days: number;
