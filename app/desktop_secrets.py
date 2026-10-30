@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 from collections.abc import Callable
 from ctypes import wintypes
@@ -73,7 +74,7 @@ def protect_for_current_user(value: bytes) -> bytes:
     output_blob = _DataBlob()
     succeeded = crypt32.CryptProtectData(
         ctypes.byref(input_blob),
-        "InternTrack OpenAI API key",
+        "InternTrack desktop secret",
         None,
         None,
         None,
@@ -153,6 +154,46 @@ class DesktopSecretStore:
         if not decrypted.strip():
             raise DesktopSecretError("Saved API key is empty")
         return decrypted
+
+    def delete(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+
+class DesktopJsonSecretStore:
+    """Persist a JSON object as a DPAPI-protected per-user file."""
+
+    def __init__(
+        self,
+        data_directory: Path,
+        filename: str,
+        protect: Callable[[bytes], bytes] = protect_for_current_user,
+        unprotect: Callable[[bytes], bytes] = unprotect_for_current_user,
+    ) -> None:
+        if not filename or Path(filename).name != filename:
+            raise ValueError("filename must be a single file name")
+        self.path = data_directory / filename
+        self._protect = protect
+        self._unprotect = unprotect
+
+    def save(self, value: dict) -> None:
+        serialized = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        encrypted = self._protect(serialized)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self.path.with_suffix(".tmp")
+        temporary_path.write_bytes(encrypted)
+        os.replace(temporary_path, self.path)
+
+    def load(self) -> dict | None:
+        if not self.path.exists():
+            return None
+        try:
+            serialized = self._unprotect(self.path.read_bytes()).decode("utf-8")
+            value = json.loads(serialized)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise DesktopSecretError("Saved desktop credentials could not be read") from exc
+        if not isinstance(value, dict):
+            raise DesktopSecretError("Saved desktop credentials are invalid")
+        return value
 
     def delete(self) -> None:
         self.path.unlink(missing_ok=True)

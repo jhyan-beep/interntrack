@@ -64,6 +64,7 @@ app/
   email_delivery.py  Email templates, outbox queue, SMTP, and retry handling
   email_tokens.py    Single-use verification and password-reset tokens
   email_worker.py    Background outbox processor
+  gmail.py       Desktop OAuth, token refresh, metadata sync, and status suggestions
   main.py        FastAPI routes
   models.py      SQLAlchemy models
   observability.py  JSON logging and per-request correlation context
@@ -109,6 +110,10 @@ Caddyfile              Automatic HTTPS reverse proxy
 | GET | `/auth/me` | View the current account |
 | DELETE | `/auth/me` | Delete the current account and its data |
 | POST | `/ai/job-draft` | Parse a job posting into a reviewable application draft |
+| GET | `/desktop/email/google` | View the local Gmail connection status |
+| POST | `/desktop/email/google/connect` | Start the desktop Google OAuth + PKCE flow |
+| DELETE | `/desktop/email/google` | Revoke and delete the local Gmail connection |
+| POST | `/desktop/email/google/sync` | Review recent Gmail metadata for status suggestions |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -216,7 +221,11 @@ Pull requests that touch desktop runtime files also run the `Windows Desktop` wo
 
 Desktop users can enable AI import from **Account settings → AI import** with their own OpenAI API key. The key is encrypted at rest with Windows DPAPI, tied to the current Windows account, and never returned to the frontend after saving. No provider secret is embedded in the installer. Removing the key immediately disables AI import and deletes the encrypted local file.
 
-Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. A future desktop email integration will use a separate provider OAuth flow rather than storing an email password.
+Desktop users can also connect Gmail from **Account settings → Gmail status sync**. InternTrack opens Google authorization in the system browser, uses OAuth PKCE with a loopback callback, and encrypts the resulting tokens with Windows DPAPI. Sync reads only sender, subject, and date metadata from up to 25 recent inbox messages. It never downloads message bodies and never changes an application until the user approves a suggestion.
+
+For beta testing, create a Google Cloud project, enable the Gmail API, configure the OAuth consent screen, add the tester account, and create a **Desktop app** OAuth client. Paste that public client ID into InternTrack when connecting. The app requests the restricted `gmail.metadata` scope; a public commercial release must complete Google's OAuth app verification before distributing this feature broadly. A verified project client ID can be supplied with `GOOGLE_OAUTH_CLIENT_ID` for release builds.
+
+Email verification, password-reset email, and cloud reminders remain disabled in desktop mode. Gmail sync is an inbox-reading integration and does not send email or store an email password.
 
 ## Run Tests
 
@@ -371,6 +380,8 @@ Supported statuses:
 Built InternTrack, a secure multi-user React, TypeScript, FastAPI, and PostgreSQL application tracker with OpenAI Structured Outputs, timezone-aware reminders, privacy-conscious activation analytics, transactional email, JSON logging, non-root containers, Alembic migrations, and PostgreSQL-backed CI.
 
 Packaged InternTrack as a local-first Windows application with Tauri, PyInstaller, FastAPI, SQLite, automated migrations, process lifecycle management, and a GitHub Actions pipeline that produces an installable NSIS artifact.
+
+Integrated privacy-first Gmail OAuth with PKCE, DPAPI-encrypted tokens, metadata-only inbox sync, deterministic application matching, and user-approved status updates without storing email bodies.
 
 ## Product Roadmap
 
