@@ -1,4 +1,9 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled
+} from "@tauri-apps/plugin-autostart";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import {
   acknowledgeDesktopReminder,
@@ -343,6 +348,9 @@ function AccountDialog({
   const [reminders, setReminders] = useState<ReminderSettings | null>(null);
   const [reminderBusy, setReminderBusy] = useState(true);
   const [reminderSaved, setReminderSaved] = useState(false);
+  const [startAtLogin, setStartAtLogin] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(desktopMode);
+  const [autostartSaved, setAutostartSaved] = useState(false);
   const [aiSettings, setAiSettings] = useState<DesktopAiSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
@@ -365,19 +373,30 @@ function AccountDialog({
   useEffect(() => {
     if (desktopMode) {
       let active = true;
-      Promise.all([getDesktopAiSettings(), getDesktopGoogleConnection(), getDesktopMicrosoftConnection(), getReminderSettings()])
-        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders]) => {
+      Promise.all([
+        getDesktopAiSettings(),
+        getDesktopGoogleConnection(),
+        getDesktopMicrosoftConnection(),
+        getReminderSettings(),
+        isAutostartEnabled().catch(() => false)
+      ])
+        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders, nextAutostart]) => {
           if (!active) return;
           setAiSettings(nextAiSettings);
           setGoogleConnection(nextGoogleConnection);
           setMicrosoftConnection(nextMicrosoftConnection);
+          setStartAtLogin(nextAutostart);
           setReminders({
             ...nextReminders,
             reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
           });
         })
         .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."))
-        .finally(() => active && setReminderBusy(false));
+        .finally(() => {
+          if (!active) return;
+          setReminderBusy(false);
+          setAutostartBusy(false);
+        });
       return () => { active = false; };
     }
     let active = true;
@@ -469,6 +488,30 @@ function AccountDialog({
       setError(caught instanceof Error ? caught.message : "Could not save reminder settings.");
     } finally {
       setReminderBusy(false);
+    }
+  }
+
+  async function handleAutostartChange(enabled: boolean) {
+    setAutostartBusy(true);
+    setAutostartSaved(false);
+    setError("");
+    try {
+      if (enabled) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+      const nextAutostart = await isAutostartEnabled();
+      if (nextAutostart !== enabled) {
+        throw new Error("Windows did not save the startup preference.");
+      }
+      setStartAtLogin(nextAutostart);
+      setAutostartSaved(true);
+    } catch (caught) {
+      setStartAtLogin(await isAutostartEnabled().catch(() => !enabled));
+      setError(caught instanceof Error ? caught.message : "Could not update the Windows startup preference.");
+    } finally {
+      setAutostartBusy(false);
     }
   }
 
@@ -652,7 +695,14 @@ function AccountDialog({
           <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
         </div>
         <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{desktopMode ? "Local account · Data stored on this computer." : `${user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.`}</small></div></div>
-        {!confirmingDelete && desktopMode && <div className="reminder-settings"><div><h3>Local-first workspace</h3><p>Applications and reminder history are stored in a private SQLite database on this computer. No reminder server is required.</p></div></div>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings">
+          <div><h3>Local-first workspace</h3><p>Applications and reminder history are stored in a private SQLite database on this computer. Closing the window keeps InternTrack in the system tray so local reminders can continue; choose Quit from the tray menu to stop it.</p></div>
+          <label className="toggle-row">
+            <span><strong>Start with Windows</strong><small>Launch InternTrack hidden in the system tray when you sign in.</small></span>
+            <input type="checkbox" checked={startAtLogin} disabled={autostartBusy} onChange={(event) => void handleAutostartChange(event.target.checked)} />
+          </label>
+          <div className="reminder-save"><span aria-live="polite">{autostartSaved ? "Saved" : ""}</span></div>
+        </section>}
         {!confirmingDelete && desktopMode && <form className="reminder-settings ai-settings" onSubmit={handleAiSettingsSubmit}>
           <div className="ai-settings-heading"><div><h3>AI import</h3><p>Use your own OpenAI API key to turn pasted job descriptions into application drafts.</p></div>{aiSettings && <span className={aiSettings.configured ? "configured" : ""}>{aiSettings.configured ? "Configured" : "Not configured"}</span>}</div>
           {!aiSettings ? <p className="settings-loading">Loading AI settings…</p> : <>
