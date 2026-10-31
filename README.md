@@ -32,6 +32,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Production Compose stack with Caddy-managed HTTPS and non-root containers
 - Guarded PostgreSQL backup and restore commands
 - Private-beta onboarding, first-party milestone metrics, and in-app feedback
+- Local-first Windows desktop edition with system tray and opt-in sign-in startup
 - GitHub Actions CI
 
 ## Tech Stack
@@ -229,6 +230,8 @@ Desktop users can enable AI import from **Account settings → AI import** with 
 
 Desktop users can enable **Local deadline reminders** without an email or cloud service. The installed Tauri app requests Windows notification permission, checks when the app launches, becomes visible, and every 30 minutes while running, then displays one native notification when an active application enters the selected reminder window. A reminder is acknowledged in the local SQLite database only after the notification call succeeds, preventing repeated alerts for the same application deadline while allowing a changed deadline to create a new reminder.
 
+Closing the desktop window hides InternTrack to the Windows system tray instead of stopping it, so the local reminder loop and packaged API can remain available. Left-click the tray icon or choose **Open InternTrack** to restore the window; choose **Quit** from the tray menu to stop the app and its sidecar. **Account settings → Start with Windows** is opt-in and registers the installed app to launch hidden in the tray after sign-in. The preference is managed by Windows and can be turned off from the same screen.
+
 Desktop users can also connect Gmail from **Account settings → Gmail status sync**. InternTrack opens Google authorization in the system browser, uses OAuth PKCE with a loopback callback, and encrypts the resulting tokens with Windows DPAPI. Sync reads only sender, subject, and date metadata from up to 25 recent inbox messages. It never downloads message bodies and never changes an application until the user approves a suggestion.
 
 For beta testing, create a Google Cloud project, enable the Gmail API, configure the OAuth consent screen, add the tester account, and create a **Desktop app** OAuth client. Paste that public client ID into InternTrack when connecting. The app requests the restricted `gmail.metadata` scope; a public commercial release must complete Google's OAuth app verification before distributing this feature broadly. A verified project client ID can be supplied with `GOOGLE_OAUTH_CLIENT_ID` for release builds.
@@ -398,6 +401,8 @@ Integrated privacy-first Gmail OAuth with PKCE, DPAPI-encrypted tokens, metadata
 Extended the local-first email workflow to Outlook and Microsoft 365 using public-client OAuth with PKCE, least-privilege Microsoft Graph access, encrypted token storage, and provider-independent status matching.
 
 Added idempotent Windows deadline notifications with Tauri permissions, timezone-aware FastAPI queries, SQLite delivery acknowledgements, and retry-safe foreground scheduling without a reminder server.
+
+Implemented a native Windows tray lifecycle and opt-in hidden autostart flow so local reminders remain available after the main window closes, while explicit Quit still shuts down the packaged FastAPI sidecar.
 
 ## Product Roadmap
 

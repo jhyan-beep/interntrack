@@ -7,6 +7,8 @@ __pycache__/
 *.db
 .pg-ci-test*
 .pytest_cache/
+.pytest-*/
+.test-tmp-*/
 .coverage
 htmlcov/
 frontend/node_modules/
@@ -20,7 +22,10 @@ desktop/src-tauri/icons/*
 !desktop/src-tauri/icons/icon.ico
 build/
 dist/
-.desktop-smoke/
+.desktop-smoke*/
+.demo-*/
+/ai-import-preview.png
+/email-verification-preview.png
 backups/
 .DS_Store
 .idea/
