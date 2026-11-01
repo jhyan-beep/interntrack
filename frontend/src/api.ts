@@ -12,6 +12,9 @@ import type {
   EmailSyncResult,
   InternshipApplication,
   PaginatedApplications,
+  PortableBackup,
+  PortableBackupPreview,
+  PortableBackupRestoreResult,
   ReminderSettings,
   RuntimeInfo,
   SortBy,
@@ -199,6 +202,46 @@ export function updateReminderSettings(
   return request("/reminders/settings", {
     method: "PATCH",
     body: JSON.stringify(settings)
+  });
+}
+
+export async function downloadPortableBackup(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/desktop/backups/export`, {
+    credentials: "include"
+  });
+  if (!response.ok) throw new ApiError("Could not create a backup.", response.status);
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] ?? "interntrack-backup.json";
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function previewPortableBackup(backup: PortableBackup): Promise<PortableBackupPreview> {
+  return request("/desktop/backups/preview", {
+    method: "POST",
+    body: JSON.stringify(backup)
+  });
+}
+
+export function restorePortableBackup(
+  backup: PortableBackup,
+  mode: "merge" | "replace"
+): Promise<PortableBackupRestoreResult> {
+  return request("/desktop/backups/restore", {
+    method: "POST",
+    body: JSON.stringify({
+      backup,
+      mode,
+      confirm_replace: mode === "replace"
+    })
   });
 }
 
