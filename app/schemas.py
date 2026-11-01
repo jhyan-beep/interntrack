@@ -295,6 +295,61 @@ class ReminderSettingsUpdate(BaseModel):
         return value
 
 
+class PortableBackupApplication(ApplicationBase):
+    created_at: datetime
+    updated_at: datetime
+
+
+class PortableBackupPreferences(BaseModel):
+    deadline_reminders_enabled: bool
+    deadline_reminder_days: int = Field(..., ge=1, le=30)
+    reminder_timezone: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("reminder_timezone")
+    @classmethod
+    def reminder_timezone_must_be_valid(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError:
+            raise ValueError("reminder_timezone must be a valid IANA time zone") from None
+        return value
+
+
+class PortableBackup(BaseModel):
+    kind: Literal["interntrack-portable-backup"]
+    schema_version: Literal[1]
+    exported_at: datetime
+    applications: list[PortableBackupApplication] = Field(..., max_length=10_000)
+    preferences: PortableBackupPreferences
+
+
+class PortableBackupPreview(BaseModel):
+    current_applications: int
+    backup_applications: int
+    duplicate_applications: int
+    merge_import_count: int
+
+
+class PortableBackupRestoreRequest(BaseModel):
+    backup: PortableBackup
+    mode: Literal["merge", "replace"]
+    confirm_replace: bool = False
+
+    @model_validator(mode="after")
+    def replacement_must_be_confirmed(self) -> "PortableBackupRestoreRequest":
+        if self.mode == "replace" and not self.confirm_replace:
+            raise ValueError("confirm_replace must be true when mode is replace")
+        return self
+
+
+class PortableBackupRestoreResult(BaseModel):
+    mode: Literal["merge", "replace"]
+    imported_applications: int
+    skipped_duplicates: int
+    removed_applications: int
+    preferences_restored: bool
+
+
 class BetaProgress(BaseModel):
     application_count: int
     email_verified: bool

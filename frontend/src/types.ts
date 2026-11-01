@@ -118,6 +118,29 @@ export interface ReminderSettings {
   reminder_timezone: string;
 }
 
+export interface PortableBackup {
+  kind: "interntrack-portable-backup";
+  schema_version: 1;
+  exported_at: string;
+  applications: Array<ApplicationInput & { created_at: string; updated_at: string }>;
+  preferences: ReminderSettings;
+}
+
+export interface PortableBackupPreview {
+  current_applications: number;
+  backup_applications: number;
+  duplicate_applications: number;
+  merge_import_count: number;
+}
+
+export interface PortableBackupRestoreResult {
+  mode: "merge" | "replace";
+  imported_applications: number;
+  skipped_duplicates: number;
+  removed_applications: number;
+  preferences_restored: boolean;
+}
+
 export interface DesktopDeadlineReminder {
   application_id: number;
   company: string;

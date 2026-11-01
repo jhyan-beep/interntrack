@@ -226,6 +226,17 @@ tbody tr:hover { background: #fbfcff; }
 .reminder-timezone strong { color: #445163; }
 .reminder-save { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .reminder-save span { color: #287b4c; font-size: 12px; font-weight: 700; }
+.backup-actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
+.backup-file { position: relative; overflow: hidden; cursor: pointer; }
+.backup-file input { width: 1px; height: 1px; position: absolute; opacity: 0; pointer-events: none; }
+.backup-preview { margin-top: 16px; padding: 14px; border: 1px solid #dfe3df; border-radius: 11px; background: white; }
+.backup-preview > p { margin-bottom: 12px; color: #344054; }
+.backup-preview > label { padding: 10px 0; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.backup-preview > label + label { border-top: 1px solid #eceeea; }
+.backup-preview > label input { margin-top: 3px; accent-color: var(--blue); }
+.backup-preview > label span { display: grid; gap: 3px; }
+.backup-preview > label strong { color: #344054; font-size: 12px; }
+.backup-preview > label small { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .settings-loading { margin-top: 18px !important; }
 .ai-settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .ai-settings-heading > div { min-width: 0; }

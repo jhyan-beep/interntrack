@@ -45,6 +45,11 @@ from app.models import (
     User,
 )
 from app.observability import configure_logging
+from app.portable_backups import (
+    create_portable_backup,
+    preview_portable_backup,
+    restore_portable_backup,
+)
 from app.schemas import (
     ApplicationCreate,
     ApplicationRead,
@@ -71,6 +76,10 @@ from app.schemas import (
     PaginatedApplications,
     PasswordForgotRequest,
     PasswordResetRequest,
+    PortableBackup,
+    PortableBackupPreview,
+    PortableBackupRestoreRequest,
+    PortableBackupRestoreResult,
     ReminderSettingsRead,
     ReminderSettingsUpdate,
     RuntimeInfo,
@@ -92,7 +101,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.11.0",
+    version="2.12.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -646,6 +655,46 @@ def get_me(user: CurrentUser) -> User:
 @app.get("/reminders/settings", response_model=ReminderSettingsRead)
 def get_reminder_settings(user: CurrentUser) -> User:
     return user
+
+
+@app.get("/desktop/backups/export")
+def export_portable_backup(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    _desktop_data_directory()
+    backup = create_portable_backup(db, user)
+    filename = f"interntrack-backup-{backup.exported_at:%Y-%m-%d}.json"
+    return Response(
+        content=backup.model_dump_json(indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/desktop/backups/preview", response_model=PortableBackupPreview)
+def preview_backup_restore(
+    backup: PortableBackup,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PortableBackupPreview:
+    _desktop_data_directory()
+    return preview_portable_backup(db, user, backup)
+
+
+@app.post("/desktop/backups/restore", response_model=PortableBackupRestoreResult)
+def restore_backup(
+    restore_in: PortableBackupRestoreRequest,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> PortableBackupRestoreResult:
+    _desktop_data_directory()
+    return restore_portable_backup(
+        db,
+        user,
+        restore_in.backup,
+        restore_in.mode,
+    )
 
 
 _ACTIVE_REMINDER_STATUSES = {

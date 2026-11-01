@@ -17,6 +17,7 @@ import {
   disconnectDesktopGoogle,
   disconnectDesktopMicrosoft,
   downloadCsv,
+  downloadPortableBackup,
   getApplications,
   getBetaProgress,
   getCurrentUser,
@@ -29,8 +30,10 @@ import {
   getStats,
   logout,
   parseJobPosting,
+  previewPortableBackup,
   recordBetaSession,
   requestEmailVerification,
+  restorePortableBackup,
   submitBetaFeedback,
   syncDesktopGoogle,
   syncDesktopMicrosoft,
@@ -51,6 +54,8 @@ import {
   type ApplicationStats,
   type ApplicationStatus,
   type InternshipApplication,
+  type PortableBackup,
+  type PortableBackupPreview,
   type ReminderSettings,
   type RuntimeInfo,
   type SortBy,
@@ -330,6 +335,7 @@ function AccountDialog({
   user,
   desktopMode,
   onAiAvailabilityChanged,
+  onDataRestored,
   onClose,
   onSignedOut,
   onDeleted
@@ -337,6 +343,7 @@ function AccountDialog({
   user: User;
   desktopMode: boolean;
   onAiAvailabilityChanged: (available: boolean) => void;
+  onDataRestored: () => Promise<void>;
   onClose: () => void;
   onSignedOut: () => Promise<void>;
   onDeleted: () => void;
@@ -369,6 +376,11 @@ function AccountDialog({
   const [outlookMessage, setOutlookMessage] = useState("");
   const [outlookAuthorizationUrl, setOutlookAuthorizationUrl] = useState("");
   const [outlookSuggestions, setOutlookSuggestions] = useState<EmailStatusSuggestion[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMessage, setBackupMessage] = useState("");
+  const [backupPayload, setBackupPayload] = useState<PortableBackup | null>(null);
+  const [backupPreview, setBackupPreview] = useState<PortableBackupPreview | null>(null);
+  const [backupMode, setBackupMode] = useState<"merge" | "replace">("merge");
 
   useEffect(() => {
     if (desktopMode) {
@@ -673,6 +685,71 @@ function AccountDialog({
     }
   }
 
+  async function handleBackupDownload() {
+    setBackupBusy(true);
+    setBackupMessage("");
+    setError("");
+    try {
+      await downloadPortableBackup();
+      setBackupMessage("Backup downloaded. Store it somewhere you can find later.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create a backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleBackupFile(file: File | undefined) {
+    setBackupPayload(null);
+    setBackupPreview(null);
+    setBackupMessage("");
+    setError("");
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("This backup is larger than the 10 MB import limit.");
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text()) as PortableBackup;
+      const preview = await previewPortableBackup(parsed);
+      setBackupPayload(parsed);
+      setBackupPreview(preview);
+      setBackupMessage("Backup validated. Choose how to restore it.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "This is not a valid InternTrack backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleBackupRestore() {
+    if (!backupPayload || !backupPreview) return;
+    if (
+      backupMode === "replace"
+      && !window.confirm("Replace every application currently stored on this computer with this backup?")
+    ) return;
+    setBackupBusy(true);
+    setBackupMessage("");
+    setError("");
+    try {
+      const result = await restorePortableBackup(backupPayload, backupMode);
+      setReminders(await getReminderSettings());
+      await onDataRestored();
+      setBackupPayload(null);
+      setBackupPreview(null);
+      setBackupMessage(
+        result.mode === "replace"
+          ? `Restore complete: ${result.imported_applications} applications loaded and ${result.removed_applications} previous applications removed.`
+          : `Restore complete: ${result.imported_applications} applications added and ${result.skipped_duplicates} duplicates skipped.`
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not restore this backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -702,6 +779,17 @@ function AccountDialog({
             <input type="checkbox" checked={startAtLogin} disabled={autostartBusy} onChange={(event) => void handleAutostartChange(event.target.checked)} />
           </label>
           <div className="reminder-save"><span aria-live="polite">{autostartSaved ? "Saved" : ""}</span></div>
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings backup-settings">
+          <div><h3>Portable backup</h3><p>Move applications and reminder preferences to another computer. Passwords, sessions, AI keys, and email connections are never included.</p></div>
+          <div className="backup-actions"><button className="button secondary compact" type="button" disabled={backupBusy} onClick={() => void handleBackupDownload()}>{backupBusy ? "Working…" : "Download backup"}</button><label className="button secondary compact backup-file">Choose backup file<input type="file" accept="application/json,.json" disabled={backupBusy} onChange={(event) => void handleBackupFile(event.target.files?.[0])} /></label></div>
+          {backupPreview && <div className="backup-preview">
+            <p><strong>{backupPreview.backup_applications}</strong> applications in backup · <strong>{backupPreview.current_applications}</strong> currently stored</p>
+            <label><input type="radio" name="backup-mode" value="merge" checked={backupMode === "merge"} onChange={() => setBackupMode("merge")} /><span><strong>Merge safely</strong><small>Add {backupPreview.merge_import_count} new applications and skip {backupPreview.duplicate_applications} duplicates.</small></span></label>
+            <label><input type="radio" name="backup-mode" value="replace" checked={backupMode === "replace"} onChange={() => setBackupMode("replace")} /><span><strong>Replace current data</strong><small>Remove the current workspace, then load this backup.</small></span></label>
+            <div className="gmail-actions"><button className={`button compact ${backupMode === "replace" ? "destructive" : "primary"}`} type="button" disabled={backupBusy} onClick={() => void handleBackupRestore()}>{backupBusy ? "Restoring…" : "Restore backup"}</button></div>
+          </div>}
+          {backupMessage && <p className="gmail-message" role="status">{backupMessage}</p>}
         </section>}
         {!confirmingDelete && desktopMode && <form className="reminder-settings ai-settings" onSubmit={handleAiSettingsSubmit}>
           <div className="ai-settings-heading"><div><h3>AI import</h3><p>Use your own OpenAI API key to turn pasted job descriptions into application drafts.</p></div>{aiSettings && <span className={aiSettings.configured ? "configured" : ""}>{aiSettings.configured ? "Configured" : "Not configured"}</span>}</div>
@@ -1186,7 +1274,7 @@ export default function App() {
       <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
-      {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>

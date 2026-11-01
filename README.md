@@ -121,6 +121,9 @@ Caddyfile              Automatic HTTPS reverse proxy
 | POST | `/desktop/email/microsoft/sync` | Review recent Outlook metadata for status suggestions |
 | GET | `/desktop/reminders/due` | List due, unacknowledged local deadline reminders |
 | POST | `/desktop/reminders/{application_id}/acknowledge` | Record a displayed local reminder |
+| GET | `/desktop/backups/export` | Download a portable local workspace backup |
+| POST | `/desktop/backups/preview` | Validate a backup and preview merge results |
+| POST | `/desktop/backups/restore` | Merge or replace a local workspace from backup |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -231,6 +234,8 @@ Desktop users can enable AI import from **Account settings → AI import** with 
 Desktop users can enable **Local deadline reminders** without an email or cloud service. The installed Tauri app requests Windows notification permission, checks when the app launches, becomes visible, and every 30 minutes while running, then displays one native notification when an active application enters the selected reminder window. A reminder is acknowledged in the local SQLite database only after the notification call succeeds, preventing repeated alerts for the same application deadline while allowing a changed deadline to create a new reminder.
 
 Closing the desktop window hides InternTrack to the Windows system tray instead of stopping it, so the local reminder loop and packaged API can remain available. Left-click the tray icon or choose **Open InternTrack** to restore the window; choose **Quit** from the tray menu to stop the app and its sidecar. **Account settings → Start with Windows** is opt-in and registers the installed app to launch hidden in the tray after sign-in. The preference is managed by Windows and can be turned off from the same screen.
+
+**Account settings → Portable backup** downloads a versioned JSON file containing application records and reminder preferences. Restore validates the entire file before changing data and supports a duplicate-aware merge or a confirmation-guarded replacement. Password hashes, sessions, AI API keys, OAuth tokens, email connections, and local encryption material are deliberately excluded, so the backup can be moved to another computer without copying account secrets.
 
 Desktop users can also connect Gmail from **Account settings → Gmail status sync**. InternTrack opens Google authorization in the system browser, uses OAuth PKCE with a loopback callback, and encrypts the resulting tokens with Windows DPAPI. Sync reads only sender, subject, and date metadata from up to 25 recent inbox messages. It never downloads message bodies and never changes an application until the user approves a suggestion.
 
@@ -404,7 +409,9 @@ Added idempotent Windows deadline notifications with Tauri permissions, timezone
 
 Implemented a native Windows tray lifecycle and opt-in hidden autostart flow so local reminders remain available after the main window closes, while explicit Quit still shuts down the packaged FastAPI sidecar.
 
+Designed a versioned, secret-free backup and restore workflow with schema validation, duplicate-aware merges, transactional replacement, and portable JSON exports for local-first user data.
+
 ## Product Roadmap
 
-The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, private-beta onboarding and metrics, structured logs, HTTPS deployment configuration, and guarded backup tooling. Remaining launch work includes deploying a pilot, configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing only after retention is validated.
+The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, private-beta onboarding and metrics, structured logs, HTTPS deployment configuration, guarded server backups, and secret-free portable desktop backups. Remaining launch work includes deploying a pilot, configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing only after retention is validated.
 
