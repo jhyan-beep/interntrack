@@ -9,6 +9,7 @@ import secrets
 import sys
 from pathlib import Path
 
+from app.desktop_backups import create_sqlite_snapshot, sqlite_database_needs_upgrade
 from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
 
 
@@ -62,14 +63,41 @@ def bundle_root() -> Path:
     return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 
 
-def run_migrations() -> None:
+def run_migrations(database_path: Path) -> Path | None:
     from alembic import command
     from alembic.config import Config
+    from alembic.script import ScriptDirectory
 
     root = bundle_root()
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "alembic"))
-    command.upgrade(config, "head")
+    expected_revisions = set(ScriptDirectory.from_config(config).get_heads())
+    snapshot_path = None
+
+    if database_path.exists() and sqlite_database_needs_upgrade(
+        database_path,
+        expected_revisions,
+    ):
+        snapshot_path = create_sqlite_snapshot(
+            database_path,
+            database_path.parent / "automatic-backups",
+        )
+        logger.info("Created pre-upgrade database snapshot at %s", snapshot_path)
+
+    try:
+        command.upgrade(config, "head")
+    except Exception as exc:
+        recovery_hint = (
+            f" A verified backup is available at {snapshot_path}."
+            if snapshot_path is not None
+            else " The original database was not changed by InternTrack's backup step."
+        )
+        raise RuntimeError(
+            "InternTrack could not upgrade the local database."
+            f"{recovery_hint} The app was not started."
+        ) from exc
+
+    return snapshot_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,8 +110,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     data_directory = args.data_dir or default_data_directory()
-    configure_desktop_environment(data_directory, args.port)
-    run_migrations()
+    database_path = configure_desktop_environment(data_directory, args.port)
+    run_migrations(database_path)
 
     import uvicorn
 
