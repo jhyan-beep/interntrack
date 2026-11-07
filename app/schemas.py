@@ -423,6 +423,32 @@ class PortableBackupRestoreResult(BaseModel):
     preferences_restored: bool
 
 
+class DesktopRecoverySnapshotRead(BaseModel):
+    snapshot_id: str
+    kind: Literal["upgrade", "restore"]
+    created_at: datetime
+    size_bytes: int
+    revisions: list[str]
+    valid: bool
+
+
+class DesktopRecoveryState(BaseModel):
+    snapshots: list[DesktopRecoverySnapshotRead]
+    pending_restore: bool
+
+
+class DesktopRecoveryRestoreRequest(BaseModel):
+    snapshot_id: str = Field(..., min_length=1, max_length=240)
+    password: str = Field(..., min_length=1, max_length=128)
+    confirmation: Literal["RESTORE"]
+
+
+class DesktopRecoveryRestoreResult(BaseModel):
+    snapshot_id: str
+    pending_restore: Literal[True] = True
+    restart_required: Literal[True] = True
+
+
 class BetaProgress(BaseModel):
     application_count: int
     email_verified: bool

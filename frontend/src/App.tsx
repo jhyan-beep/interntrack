@@ -8,6 +8,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from "@tauri
 import {
   acknowledgeDesktopReminder,
   ApiError,
+  cancelDesktopRecovery,
   connectDesktopGoogle,
   connectDesktopMicrosoft,
   createApplication,
@@ -24,6 +25,7 @@ import {
   getDesktopAiSettings,
   getDesktopGoogleConnection,
   getDesktopMicrosoftConnection,
+  getDesktopRecoveryState,
   getDueDesktopReminders,
   getRuntimeInfo,
   getReminderSettings,
@@ -33,6 +35,7 @@ import {
   parseJobPosting,
   previewCsvImport,
   previewPortableBackup,
+  prepareDesktopRecovery,
   recordBetaSession,
   requestEmailVerification,
   restorePortableBackup,
@@ -53,6 +56,7 @@ import {
   type CsvImportResult,
   type DesktopAiSettings,
   type DesktopEmailConnection,
+  type DesktopRecoveryState,
   type EmailStatusSuggestion,
   type ApplicationInput,
   type ApplicationStats,
@@ -161,6 +165,11 @@ function formatDate(value: string | null): string {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(
     new Date(year, month - 1, day)
   );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function daysUntil(value: string): number {
@@ -485,6 +494,12 @@ function AccountDialog({
   const [backupPayload, setBackupPayload] = useState<PortableBackup | null>(null);
   const [backupPreview, setBackupPreview] = useState<PortableBackupPreview | null>(null);
   const [backupMode, setBackupMode] = useState<"merge" | "replace">("merge");
+  const [recovery, setRecovery] = useState<DesktopRecoveryState | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
 
   useEffect(() => {
     if (desktopMode) {
@@ -494,13 +509,15 @@ function AccountDialog({
         getDesktopGoogleConnection(),
         getDesktopMicrosoftConnection(),
         getReminderSettings(),
+        getDesktopRecoveryState(),
         isAutostartEnabled().catch(() => false)
       ])
-        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders, nextAutostart]) => {
+        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders, nextRecovery, nextAutostart]) => {
           if (!active) return;
           setAiSettings(nextAiSettings);
           setGoogleConnection(nextGoogleConnection);
           setMicrosoftConnection(nextMicrosoftConnection);
+          setRecovery(nextRecovery);
           setStartAtLogin(nextAutostart);
           setReminders({
             ...nextReminders,
@@ -854,6 +871,44 @@ function AccountDialog({
     }
   }
 
+  async function handlePrepareRecovery() {
+    if (!selectedSnapshot) return;
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      await prepareDesktopRecovery(
+        selectedSnapshot,
+        recoveryPassword,
+        recoveryConfirmation
+      );
+      setRecovery(await getDesktopRecoveryState());
+      setRecoveryPassword("");
+      setRecoveryConfirmation("");
+      setRecoveryMessage(
+        "Restore is ready. Choose Quit from the InternTrack system-tray menu, then reopen the app to apply it."
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not prepare this recovery point.");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function handleCancelRecovery() {
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      setRecovery(await cancelDesktopRecovery());
+      setRecoveryMessage("Pending restore cancelled. Your current workspace will stay active.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not cancel the pending restore.");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -883,6 +938,26 @@ function AccountDialog({
             <input type="checkbox" checked={startAtLogin} disabled={autostartBusy} onChange={(event) => void handleAutostartChange(event.target.checked)} />
           </label>
           <div className="reminder-save"><span aria-live="polite">{autostartSaved ? "Saved" : ""}</span></div>
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings recovery-settings">
+          <div><h3>Automatic recovery</h3><p>Return the entire local workspace to a snapshot made before an upgrade or earlier restore. The current workspace is backed up again immediately before replacement.</p></div>
+          {!recovery ? <p className="settings-loading">Checking recovery points…</p> : recovery.pending_restore ? <div className="recovery-pending" role="status">
+            <strong>Restore ready for next launch</strong>
+            <p>Choose <strong>Quit</strong> from the InternTrack system-tray menu, then reopen the app. Closing only the window keeps InternTrack running.</p>
+            <button className="button secondary compact" type="button" disabled={recoveryBusy} onClick={() => void handleCancelRecovery()}>{recoveryBusy ? "Cancelling…" : "Cancel pending restore"}</button>
+          </div> : recovery.snapshots.length === 0 ? <p className="recovery-empty">No automatic recovery points yet. One will appear before a future database upgrade.</p> : <>
+            <div className="recovery-list">{recovery.snapshots.map((snapshot) => <label className={!snapshot.valid ? "invalid" : ""} key={snapshot.snapshot_id}>
+              <input type="radio" name="recovery-snapshot" value={snapshot.snapshot_id} checked={selectedSnapshot === snapshot.snapshot_id} disabled={!snapshot.valid || recoveryBusy} onChange={() => setSelectedSnapshot(snapshot.snapshot_id)} />
+              <span><strong>{snapshot.kind === "upgrade" ? "Before app upgrade" : "Before previous restore"}</strong><small>{new Date(snapshot.created_at).toLocaleString()} · {formatFileSize(snapshot.size_bytes)}{snapshot.valid ? "" : " · Damaged or unreadable"}</small></span>
+            </label>)}</div>
+            {selectedSnapshot && <div className="recovery-confirmation">
+              <p>This replaces the complete local database on the next launch, including accounts and reminder history.</p>
+              <label>Current password<input type="password" autoComplete="current-password" maxLength={128} value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} /></label>
+              <label>Type RESTORE to confirm<input type="text" autoComplete="off" maxLength={7} value={recoveryConfirmation} onChange={(event) => setRecoveryConfirmation(event.target.value)} /></label>
+              <button className="button destructive compact" type="button" disabled={recoveryBusy || !recoveryPassword || recoveryConfirmation !== "RESTORE"} onClick={() => void handlePrepareRecovery()}>{recoveryBusy ? "Preparing…" : "Restore on next launch"}</button>
+            </div>}
+          </>}
+          {recoveryMessage && <p className="gmail-message" role="status">{recoveryMessage}</p>}
         </section>}
         {!confirmingDelete && desktopMode && <section className="reminder-settings backup-settings">
           <div><h3>Portable backup</h3><p>Move applications and reminder preferences to another computer. Passwords, sessions, AI keys, and email connections are never included.</p></div>

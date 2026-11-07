@@ -179,6 +179,26 @@ export interface PortableBackupRestoreResult {
   preferences_restored: boolean;
 }
 
+export interface DesktopRecoverySnapshot {
+  snapshot_id: string;
+  kind: "upgrade" | "restore";
+  created_at: string;
+  size_bytes: number;
+  revisions: string[];
+  valid: boolean;
+}
+
+export interface DesktopRecoveryState {
+  snapshots: DesktopRecoverySnapshot[];
+  pending_restore: boolean;
+}
+
+export interface DesktopRecoveryRestoreResult {
+  snapshot_id: string;
+  pending_restore: true;
+  restart_required: true;
+}
+
 export interface DesktopReminder {
   kind: "deadline" | "next_step";
   application_id: number;

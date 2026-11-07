@@ -9,7 +9,11 @@ import secrets
 import sys
 from pathlib import Path
 
-from app.desktop_backups import create_sqlite_snapshot, sqlite_database_needs_upgrade
+from app.desktop_backups import (
+    apply_pending_restore,
+    create_sqlite_snapshot,
+    sqlite_database_needs_upgrade,
+)
 from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
 
 
@@ -111,6 +115,12 @@ def main() -> None:
     args = parse_args()
     data_directory = args.data_dir or default_data_directory()
     database_path = configure_desktop_environment(data_directory, args.port)
+    restored_snapshot = apply_pending_restore(database_path)
+    if restored_snapshot is not None:
+        logger.info(
+            "Applied pending database restore; previous workspace saved at %s",
+            restored_snapshot,
+        )
     run_migrations(database_path)
 
     import uvicorn
