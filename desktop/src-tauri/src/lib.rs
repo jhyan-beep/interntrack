@@ -11,11 +11,28 @@ use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-
 const API_PORT: u16 = 8765;
 const API_URL: &str = "http://127.0.0.1:8765";
 
 struct ApiSidecar(Mutex<Option<CommandChild>>);
+
+#[tauri::command]
+fn restart_for_pending_restore(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let data_directory = app_handle
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| error.to_string())?;
+    let pending_restore = data_directory.join("pending-restore.db");
+    if !pending_restore.is_file() {
+        return Err("No verified restore is waiting to be applied.".to_string());
+    }
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(250));
+        app_handle.request_restart();
+    });
+    Ok(())
+}
 
 fn show_main_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
@@ -48,6 +65,7 @@ fn wait_for_api(app_handle: tauri::AppHandle, show_on_ready: bool) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![restart_for_pending_restore])
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();

@@ -275,7 +275,7 @@ tbody tr:hover { background: #fbfcff; }
 .recovery-pending { margin-top: 15px; padding: 14px; border: 1px solid #b9dfc7; border-radius: 11px; background: #edf8f2; }
 .recovery-pending > strong { color: #216845; font-size: 12px; }
 .recovery-pending p { margin-top: 5px; color: #37634a; }
-.recovery-pending button { margin-top: 12px; }
+.recovery-pending-actions { margin-top: 12px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .backup-actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
 .backup-file { position: relative; overflow: hidden; cursor: pointer; }
 .backup-file input { width: 1px; height: 1px; position: absolute; opacity: 0; pointer-events: none; }
