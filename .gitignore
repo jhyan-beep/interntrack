@@ -27,6 +27,10 @@ dist/
 /ai-import-preview.png
 /email-verification-preview.png
 backups/
+*.pfx
+*.p12
+*.key
+desktop/src-tauri/tauri.release.conf.json
 .DS_Store
 .idea/
 .vscode/
