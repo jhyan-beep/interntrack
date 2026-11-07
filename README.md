@@ -24,6 +24,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Liveness and database readiness checks
 - Correlated request IDs and production JSON logs
 - Spreadsheet-safe CSV exports
+- Atomic CSV imports with validation, preview, and duplicate detection
 - Alembic database migrations
 - PostgreSQL support with SQLAlchemy
 - Pydantic schemas for request and response validation
@@ -139,6 +140,8 @@ Caddyfile              Automatic HTTPS reverse proxy
 | PATCH | `/applications/{application_id}` | Update one application |
 | DELETE | `/applications/{application_id}` | Delete one application |
 | GET | `/applications/export.csv` | Export applications to CSV |
+| POST | `/applications/import/preview` | Validate and preview a CSV import |
+| POST | `/applications/import` | Atomically import validated, non-duplicate rows |
 | GET | `/stats` | View application statistics |
 
 Example list query:
@@ -339,6 +342,12 @@ Verified users can paste a job description and optional posting URL into the AI 
 
 The default model is `gpt-6-luna`, selected for a focused extraction workload, and can be changed with `OPENAI_MODEL`. Requests use `store=False`, are input-limited and rate-limited, and treat the posting as untrusted data. `OPENAI_API_KEY` is read only by the backend and must come from the deployment secret manager. If it is absent, normal tracking features continue to work and AI import returns a clear configuration error.
 
+## CSV migration
+
+The application table accepts UTF-8 CSV files with required `company` and `role` columns. Optional columns are `status`, `application_date`, `deadline`, `location`, `source_url`, and `notes`; the wider format produced by InternTrack's CSV export is also accepted. Preview validates every row, reports up to 20 row-level errors, detects duplicates by normalized company, role, and application date, and shows a small sample before import.
+
+Imports are atomic: if any row is invalid, no rows are written. Valid duplicate rows are skipped, files are capped at 2 MB in the interface and 5,000 rows in the parser, and every created application remains scoped to the authenticated user.
+
 ## Deadline reminders
 
 Deadline reminders are opt-in and available only after email verification. Users choose a reminder window from Account settings, and the browser's IANA time zone is stored with that preference so date calculations follow the user's local day. The background worker scans active `saved`, `applied`, and `interview` applications and queues one email when a deadline enters that window. A database uniqueness constraint on application and deadline makes repeated worker scans safe; changing the application's deadline creates a new reminder opportunity.
@@ -410,6 +419,8 @@ Added idempotent Windows deadline notifications with Tauri permissions, timezone
 Implemented a native Windows tray lifecycle and opt-in hidden autostart flow so local reminders remain available after the main window closes, while explicit Quit still shuts down the packaged FastAPI sidecar.
 
 Designed a versioned, secret-free backup and restore workflow with schema validation, duplicate-aware merges, transactional replacement, and portable JSON exports for local-first user data.
+
+Built an atomic CSV migration pipeline with typed row validation, duplicate detection, pre-import previews, spreadsheet round trips, and all-or-nothing database writes.
 
 ## Product Roadmap
 

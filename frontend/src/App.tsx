@@ -28,8 +28,10 @@ import {
   getRuntimeInfo,
   getReminderSettings,
   getStats,
+  importCsv,
   logout,
   parseJobPosting,
+  previewCsvImport,
   previewPortableBackup,
   recordBetaSession,
   requestEmailVerification,
@@ -47,6 +49,8 @@ import {
   STATUSES,
   type AiJobDraft,
   type BetaProgress,
+  type CsvImportPreview,
+  type CsvImportResult,
   type DesktopAiSettings,
   type DesktopEmailConnection,
   type EmailStatusSuggestion,
@@ -162,6 +166,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     plus: <><path d="M12 5v14M5 12h14" /></>,
     search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></>,
     download: <><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></>,
+    upload: <><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" /></>,
     briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" /></>,
     activity: <><path d="M3 12h4l2.5-7 5 14 2.5-7h4" /></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
@@ -326,6 +331,91 @@ function AiImportModal({
             <button type="submit" className="button primary" disabled={parsing}>{parsing ? "Creating draft…" : "Generate draft"}</button>
           </div>
         </form>
+      </section>
+    </div>
+  );
+}
+
+function CsvImportModal({
+  onClose,
+  onImported
+}: {
+  onClose: () => void;
+  onImported: (result: CsvImportResult) => Promise<void>;
+}) {
+  const [csvText, setCsvText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState<CsvImportPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function handleFile(file: File | undefined) {
+    setCsvText("");
+    setFileName("");
+    setPreview(null);
+    setError("");
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      setError("CSV files are limited to 2 MB.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const nextPreview = await previewCsvImport(text);
+      setCsvText(text);
+      setFileName(file.name);
+      setPreview(nextPreview);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not preview this CSV file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImport() {
+    if (!csvText || !preview || preview.invalid_rows) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onImported(await importCsv(csvText));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not import this CSV file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal csv-import-dialog" role="dialog" aria-modal="true" aria-labelledby="csv-import-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">Spreadsheet migration</p><h2 id="csv-import-title">Import applications from CSV</h2></div>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close CSV import"><Icon name="close" /></button>
+        </div>
+        <p className="csv-import-intro">Choose a UTF-8 CSV with <strong>company</strong> and <strong>role</strong> columns. Status, application_date, deadline, location, source_url, and notes are optional. InternTrack validates every row before saving anything.</p>
+        <label className="csv-file-picker"><Icon name="upload" size={22} /><span><strong>{fileName || "Choose a CSV file"}</strong><small>Up to 2 MB or 5,000 rows</small></span><input type="file" accept="text/csv,.csv" disabled={busy} onChange={(event) => void handleFile(event.target.files?.[0])} /></label>
+        {busy && !preview && <div className="csv-import-loading"><span className="loader" /><p>Checking rows…</p></div>}
+        {preview && <div className="csv-preview">
+          <div className="csv-preview-counts"><span><strong>{preview.importable_rows}</strong> ready</span><span><strong>{preview.duplicate_rows}</strong> duplicates</span><span className={preview.invalid_rows ? "invalid" : ""}><strong>{preview.invalid_rows}</strong> invalid</span></div>
+          {preview.sample.length > 0 && <div className="csv-sample"><h3>Preview</h3>{preview.sample.map((item, index) => <div key={`${item.company}-${item.role}-${index}`}><span><strong>{item.company}</strong><small>{item.role}</small></span><StatusBadge status={item.status} /></div>)}</div>}
+          {preview.errors.length > 0 && <div className="csv-errors"><h3>Fix before importing</h3>{preview.errors.map((item, index) => <p key={`${item.row}-${index}`}><strong>Row {item.row}{item.field ? ` · ${item.field}` : ""}</strong>{item.message}</p>)}{preview.errors_truncated && <small>More invalid rows are not shown.</small>}</div>}
+          {!preview.invalid_rows && !preview.importable_rows && <p className="csv-no-new">No new applications to import. Every valid row is already in InternTrack.</p>}
+        </div>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="button" className="button primary" disabled={busy || !preview || Boolean(preview.invalid_rows) || !preview.importable_rows} onClick={() => void handleImport()}>{busy ? "Importing…" : preview ? `Import ${preview.importable_rows} applications` : "Import applications"}</button></div>
       </section>
     </div>
   );
@@ -967,6 +1057,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [editing, setEditing] = useState<InternshipApplication | null>(null);
   const [initialDraft, setInitialDraft] = useState<ApplicationInput | null>(null);
   const [toast, setToast] = useState("");
@@ -1182,6 +1273,13 @@ export default function App() {
     setModalOpen(true);
   }
 
+  async function handleCsvImported(result: CsvImportResult) {
+    setCsvModalOpen(false);
+    setPage(1);
+    setToast(`Imported ${result.imported_applications} applications${result.skipped_duplicates ? ` · ${result.skipped_duplicates} duplicates skipped` : ""}`);
+    await loadDashboard();
+  }
+
   function handleFeedbackSubmitted() {
     setFeedbackOpen(false);
     setToast("Thanks—your beta feedback was saved");
@@ -1249,7 +1347,7 @@ export default function App() {
         </section>
 
         <section className="applications-section" id="applications">
-          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary" onClick={() => setCsvModalOpen(true)}><Icon name="upload" size={17} /> Import CSV</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
 
           <div className="toolbar">
             <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
@@ -1273,6 +1371,7 @@ export default function App() {
 
       <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
+      {csvModalOpen && <CsvImportModal onClose={() => setCsvModalOpen(false)} onImported={handleCsvImported} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
       {accountOpen && <AccountDialog user={user} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}

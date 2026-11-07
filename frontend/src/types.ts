@@ -63,6 +63,34 @@ export interface PaginatedApplications {
   pages: number;
 }
 
+export interface CsvImportRowError {
+  row: number;
+  field: string | null;
+  message: string;
+}
+
+export interface CsvImportSample {
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  application_date: string;
+}
+
+export interface CsvImportPreview {
+  total_rows: number;
+  importable_rows: number;
+  duplicate_rows: number;
+  invalid_rows: number;
+  errors: CsvImportRowError[];
+  errors_truncated: boolean;
+  sample: CsvImportSample[];
+}
+
+export interface CsvImportResult {
+  imported_applications: number;
+  skipped_duplicates: number;
+}
+
 export interface User {
   id: number;
   email: string;
