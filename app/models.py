@@ -78,6 +78,10 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    action_reminder_deliveries: Mapped[list["ActionReminderDelivery"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     product_events: Mapped[list["ProductEvent"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -210,6 +214,10 @@ class InternshipApplication(Base):
         back_populates="application",
         cascade="all, delete-orphan",
     )
+    action_reminder_deliveries: Mapped[list["ActionReminderDelivery"]] = relationship(
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
 
 
 class DeadlineReminderDelivery(Base):
@@ -239,6 +247,37 @@ class DeadlineReminderDelivery(Base):
     user: Mapped[User] = relationship(back_populates="deadline_reminder_deliveries")
     application: Mapped[InternshipApplication] = relationship(
         back_populates="deadline_reminder_deliveries"
+    )
+
+
+class ActionReminderDelivery(Base):
+    __tablename__ = "action_reminder_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "application_id",
+            "next_step_date",
+            "next_step",
+            name="uq_action_reminder_application_date_step",
+        ),
+        Index("ix_action_reminder_deliveries_user_queued", "user_id", "queued_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    application_id: Mapped[int] = mapped_column(
+        ForeignKey("internship_applications.id", ondelete="CASCADE"),
+        index=True,
+    )
+    next_step_date: Mapped[date] = mapped_column(Date)
+    next_step: Mapped[str] = mapped_column(String(200))
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped[User] = relationship(back_populates="action_reminder_deliveries")
+    application: Mapped[InternshipApplication] = relationship(
+        back_populates="action_reminder_deliveries"
     )
 
 

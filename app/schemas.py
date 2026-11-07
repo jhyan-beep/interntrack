@@ -329,16 +329,18 @@ class OutlookSyncRead(BaseModel):
     suggestions: list[GmailStatusSuggestion]
 
 
-class DesktopDeadlineReminderRead(BaseModel):
+class DesktopReminderRead(BaseModel):
+    kind: Literal["deadline", "next_step"]
     application_id: int
     company: str
     role: str
-    deadline: date
+    scheduled_date: date
     days_remaining: int
+    message: str
 
 
-class DesktopDeadlineRemindersRead(BaseModel):
-    items: list[DesktopDeadlineReminderRead]
+class DesktopRemindersRead(BaseModel):
+    items: list[DesktopReminderRead]
 
 
 class ReminderSettingsRead(BaseModel):

@@ -179,16 +179,18 @@ export interface PortableBackupRestoreResult {
   preferences_restored: boolean;
 }
 
-export interface DesktopDeadlineReminder {
+export interface DesktopReminder {
+  kind: "deadline" | "next_step";
   application_id: number;
   company: string;
   role: string;
-  deadline: string;
+  scheduled_date: string;
   days_remaining: number;
+  message: string;
 }
 
-export interface DesktopDeadlineReminders {
-  items: DesktopDeadlineReminder[];
+export interface DesktopReminders {
+  items: DesktopReminder[];
 }
 
 export interface BetaProgress {

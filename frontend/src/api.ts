@@ -10,7 +10,7 @@ import type {
   DesktopAiSettings,
   DesktopEmailConnection,
   DesktopEmailConnectResult,
-  DesktopDeadlineReminders,
+  DesktopReminders,
   EmailSyncResult,
   InternshipApplication,
   PaginatedApplications,
@@ -261,12 +261,15 @@ export function restorePortableBackup(
   });
 }
 
-export function getDueDesktopReminders(): Promise<DesktopDeadlineReminders> {
+export function getDueDesktopReminders(): Promise<DesktopReminders> {
   return request("/desktop/reminders/due");
 }
 
-export function acknowledgeDesktopReminder(applicationId: number): Promise<void> {
-  return request(`/desktop/reminders/${applicationId}/acknowledge`, { method: "POST" });
+export function acknowledgeDesktopReminder(
+  applicationId: number,
+  kind: "deadline" | "next_step"
+): Promise<void> {
+  return request(`/desktop/reminders/${applicationId}/acknowledge?kind=${kind}`, { method: "POST" });
 }
 
 export function verifyEmail(token: string): Promise<User> {
