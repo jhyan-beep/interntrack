@@ -39,6 +39,7 @@ from app.email_delivery import enqueue_email, password_reset_email, verification
 from app.email_sync import suggest_status_updates
 from app.email_tokens import consume_email_token, invalidate_user_tokens, issue_email_token
 from app.models import (
+    ActionReminderDelivery,
     ApplicationStatus,
     DeadlineReminderDelivery,
     EmailTokenPurpose,
@@ -73,7 +74,7 @@ from app.schemas import (
     DesktopMicrosoftConnectionRead,
     DesktopMicrosoftConnectRead,
     DesktopMicrosoftConnectRequest,
-    DesktopDeadlineRemindersRead,
+    DesktopRemindersRead,
     EmailTokenRequest,
     GmailSyncRead,
     OutlookSyncRead,
@@ -105,7 +106,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.14.0",
+    version="2.15.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -706,13 +707,15 @@ _ACTIVE_REMINDER_STATUSES = {
     ApplicationStatus.APPLIED,
     ApplicationStatus.INTERVIEW,
 }
+_ACTIVE_ACTION_STATUSES = _ACTIVE_REMINDER_STATUSES | {ApplicationStatus.OFFER}
+_ACTION_REMINDER_RECOVERY_DAYS = 7
 
 
 def _desktop_reminder_date(user: User) -> datetime:
     return datetime.now(timezone.utc).astimezone(ZoneInfo(user.reminder_timezone))
 
 
-@app.get("/desktop/reminders/due", response_model=DesktopDeadlineRemindersRead)
+@app.get("/desktop/reminders/due", response_model=DesktopRemindersRead)
 def get_due_desktop_reminders(
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
@@ -723,7 +726,7 @@ def get_due_desktop_reminders(
 
     local_date = _desktop_reminder_date(user).date()
     latest_date = local_date + timedelta(days=user.deadline_reminder_days)
-    applications = list(
+    deadline_applications = list(
         db.scalars(
             select(InternshipApplication)
             .where(
@@ -746,19 +749,72 @@ def get_due_desktop_reminders(
             ).where(DeadlineReminderDelivery.user_id == user.id)
         ).all()
     }
-    return {
-        "items": [
-            {
-                "application_id": application.id,
-                "company": application.company,
-                "role": application.role,
-                "deadline": application.deadline,
-                "days_remaining": (application.deadline - local_date).days,
-            }
-            for application in applications
-            if (application.id, application.deadline) not in delivered
-        ]
+    deadline_items = [
+        {
+            "kind": "deadline",
+            "application_id": application.id,
+            "company": application.company,
+            "role": application.role,
+            "scheduled_date": application.deadline,
+            "days_remaining": (application.deadline - local_date).days,
+            "message": "Application deadline",
+        }
+        for application in deadline_applications
+        if (application.id, application.deadline) not in delivered
+    ]
+
+    action_applications = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(
+                InternshipApplication.user_id == user.id,
+                InternshipApplication.status.in_(_ACTIVE_ACTION_STATUSES),
+                InternshipApplication.next_step.is_not(None),
+                InternshipApplication.next_step_date.is_not(None),
+                InternshipApplication.next_step_date
+                >= local_date - timedelta(days=_ACTION_REMINDER_RECOVERY_DAYS),
+                InternshipApplication.next_step_date <= local_date,
+            )
+            .order_by(
+                InternshipApplication.next_step_date.asc(),
+                InternshipApplication.id.asc(),
+            )
+            .limit(20)
+        )
+    )
+    delivered_actions = {
+        (application_id, next_step_date, next_step)
+        for application_id, next_step_date, next_step in db.execute(
+            select(
+                ActionReminderDelivery.application_id,
+                ActionReminderDelivery.next_step_date,
+                ActionReminderDelivery.next_step,
+            ).where(ActionReminderDelivery.user_id == user.id)
+        ).all()
     }
+    action_items = [
+        {
+            "kind": "next_step",
+            "application_id": application.id,
+            "company": application.company,
+            "role": application.role,
+            "scheduled_date": application.next_step_date,
+            "days_remaining": (application.next_step_date - local_date).days,
+            "message": application.next_step,
+        }
+        for application in action_applications
+        if (
+            application.id,
+            application.next_step_date,
+            application.next_step,
+        )
+        not in delivered_actions
+    ]
+    items = sorted(
+        deadline_items + action_items,
+        key=lambda item: (item["scheduled_date"], item["kind"], item["application_id"]),
+    )
+    return {"items": items[:20]}
 
 
 @app.post(
@@ -769,6 +825,7 @@ def acknowledge_desktop_reminder(
     application_id: int,
     user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
+    kind: Annotated[Literal["deadline", "next_step"], Query()] = "deadline",
 ) -> Response:
     _desktop_data_directory()
     application = db.scalar(
@@ -786,27 +843,53 @@ def acknowledge_desktop_reminder(
         )
 
     local_date = _desktop_reminder_date(user).date()
-    days_remaining = (
-        (application.deadline - local_date).days if application.deadline is not None else -1
-    )
-    if (
-        application.status not in _ACTIVE_REMINDER_STATUSES
-        or days_remaining < 0
-        or days_remaining > user.deadline_reminder_days
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This application is not currently due for a reminder",
+    if kind == "deadline":
+        days_remaining = (
+            (application.deadline - local_date).days
+            if application.deadline is not None
+            else -1
         )
-
-    db.add(
-        DeadlineReminderDelivery(
-            user_id=user.id,
-            application_id=application.id,
-            deadline=application.deadline,
-            days_before=days_remaining,
+        if (
+            application.status not in _ACTIVE_REMINDER_STATUSES
+            or days_remaining < 0
+            or days_remaining > user.deadline_reminder_days
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This application is not currently due for a reminder",
+            )
+        db.add(
+            DeadlineReminderDelivery(
+                user_id=user.id,
+                application_id=application.id,
+                deadline=application.deadline,
+                days_before=days_remaining,
+            )
         )
-    )
+    else:
+        days_remaining = (
+            (application.next_step_date - local_date).days
+            if application.next_step_date is not None
+            else 1
+        )
+        if (
+            application.status not in _ACTIVE_ACTION_STATUSES
+            or not application.next_step
+            or days_remaining > 0
+            or days_remaining < -_ACTION_REMINDER_RECOVERY_DAYS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This next action is not currently due for a reminder",
+            )
+        db.add(
+            ActionReminderDelivery(
+                user_id=user.id,
+                application_id=application.id,
+                next_step_date=application.next_step_date,
+                next_step=application.next_step,
+            )
+        )
     try:
         db.commit()
     except IntegrityError:

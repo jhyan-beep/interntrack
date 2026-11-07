@@ -121,8 +121,8 @@ Caddyfile              Automatic HTTPS reverse proxy
 | POST | `/desktop/email/microsoft/connect` | Start Microsoft public-client OAuth + PKCE |
 | DELETE | `/desktop/email/microsoft` | Delete the local Microsoft connection |
 | POST | `/desktop/email/microsoft/sync` | Review recent Outlook metadata for status suggestions |
-| GET | `/desktop/reminders/due` | List due, unacknowledged local deadline reminders |
-| POST | `/desktop/reminders/{application_id}/acknowledge` | Record a displayed local reminder |
+| GET | `/desktop/reminders/due` | List due local deadline and next-action reminders |
+| POST | `/desktop/reminders/{application_id}/acknowledge` | Record a displayed local reminder by kind |
 | GET | `/desktop/backups/export` | Download a portable local workspace backup |
 | POST | `/desktop/backups/preview` | Validate a backup and preview merge results |
 | POST | `/desktop/backups/restore` | Merge or replace a local workspace from backup |
@@ -235,7 +235,7 @@ Pull requests that touch desktop runtime files also run the `Windows Desktop` wo
 
 Desktop users can enable AI import from **Account settings → AI import** with their own OpenAI API key. The key is encrypted at rest with Windows DPAPI, tied to the current Windows account, and never returned to the frontend after saving. No provider secret is embedded in the installer. Removing the key immediately disables AI import and deletes the encrypted local file.
 
-Desktop users can enable **Local deadline reminders** without an email or cloud service. The installed Tauri app requests Windows notification permission, checks when the app launches, becomes visible, and every 30 minutes while running, then displays one native notification when an active application enters the selected reminder window. A reminder is acknowledged in the local SQLite database only after the notification call succeeds, preventing repeated alerts for the same application deadline while allowing a changed deadline to create a new reminder.
+Desktop users can enable **Local reminders** without an email or cloud service. The installed Tauri app requests Windows notification permission, checks when the app launches, becomes visible, and every 30 minutes while running, then displays native notifications for application deadlines entering the selected reminder window and next actions due today. Recently missed next actions are recovered for seven days when the app returns. A reminder is acknowledged in the local SQLite database only after the notification call succeeds. Deadline deliveries are keyed by application and deadline; action deliveries are keyed by application, date, and action text, so repeated checks are idempotent while changing the action creates a new reminder opportunity.
 
 Closing the desktop window hides InternTrack to the Windows system tray instead of stopping it, so the local reminder loop and packaged API can remain available. Left-click the tray icon or choose **Open InternTrack** to restore the window; choose **Quit** from the tray menu to stop the app and its sidecar. **Account settings → Start with Windows** is opt-in and registers the installed app to launch hidden in the tray after sign-in. The preference is managed by Windows and can be turned off from the same screen.
 
@@ -425,6 +425,8 @@ Designed a versioned, secret-free backup and restore workflow with schema valida
 Built an atomic CSV migration pipeline with typed row validation, duplicate detection, pre-import previews, spreadsheet round trips, and all-or-nothing database writes.
 
 Added scheduled next actions across Alembic, SQLAlchemy, Pydantic, FastAPI, React, CSV migration, portable backups, and dashboard analytics to turn passive application records into an actionable workflow.
+
+Extended the local Windows reminder engine with idempotent next-action notifications, seven-day offline recovery, typed reminder kinds, and delivery keys that safely re-notify after an action changes.
 
 ## Product Roadmap
 

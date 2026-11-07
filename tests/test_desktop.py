@@ -175,11 +175,13 @@ async def test_desktop_deadline_reminder_is_acknowledged_only_once(
     assert first_scan.status_code == 200
     assert first_scan.json()["items"] == [
         {
+            "kind": "deadline",
             "application_id": due.json()["id"],
             "company": "Reminder Company",
             "role": "Software Engineer Intern",
-            "deadline": (current_date + timedelta(days=1)).isoformat(),
+            "scheduled_date": (current_date + timedelta(days=1)).isoformat(),
             "days_remaining": 1,
+            "message": "Application deadline",
         }
     ]
 
@@ -194,6 +196,98 @@ async def test_desktop_deadline_reminder_is_acknowledged_only_once(
     assert first_ack.status_code == 204
     assert repeated_ack.status_code == 204
     assert second_scan.json()["items"] == []
+
+
+@pytest.mark.anyio
+async def test_desktop_next_action_reminders_are_idempotent_and_recover_recent_misses(
+    anonymous_client: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", "desktop")
+    monkeypatch.setattr(settings, "desktop_data_dir", tmp_path)
+    monkeypatch.setattr(main, "hash_password", lambda _password: "test-password-hash")
+    registered = await anonymous_client.post(
+        "/auth/register",
+        json={"email": "actions@example.com", "password": "securepass123"},
+    )
+    assert registered.status_code == 201
+    enabled = await anonymous_client.patch(
+        "/reminders/settings",
+        json={
+            "deadline_reminders_enabled": True,
+            "deadline_reminder_days": 3,
+            "reminder_timezone": "UTC",
+        },
+    )
+    assert enabled.status_code == 200
+    current_date = datetime.now(timezone.utc).date()
+
+    due = await anonymous_client.post(
+        "/applications",
+        json={
+            "company": "Action Company",
+            "role": "Software Engineer Intern",
+            "status": "interview",
+            "application_date": current_date.isoformat(),
+            "next_step": "Prepare system design examples",
+            "next_step_date": current_date.isoformat(),
+        },
+    )
+    overdue = await anonymous_client.post(
+        "/applications",
+        json={
+            "company": "Overdue Company",
+            "role": "Software Engineer Intern",
+            "status": "applied",
+            "application_date": (current_date - timedelta(days=10)).isoformat(),
+            "next_step": "Send recruiter follow-up",
+            "next_step_date": (current_date - timedelta(days=3)).isoformat(),
+        },
+    )
+    await anonymous_client.post(
+        "/applications",
+        json={
+            "company": "Future Company",
+            "role": "Software Engineer Intern",
+            "status": "saved",
+            "application_date": current_date.isoformat(),
+            "next_step": "Review job description",
+            "next_step_date": (current_date + timedelta(days=1)).isoformat(),
+        },
+    )
+
+    first_scan = await anonymous_client.get("/desktop/reminders/due")
+    assert [item["company"] for item in first_scan.json()["items"]] == [
+        "Overdue Company",
+        "Action Company",
+    ]
+    assert first_scan.json()["items"][0]["kind"] == "next_step"
+    assert first_scan.json()["items"][0]["days_remaining"] == -3
+
+    first_ack = await anonymous_client.post(
+        f"/desktop/reminders/{due.json()['id']}/acknowledge?kind=next_step"
+    )
+    repeated_ack = await anonymous_client.post(
+        f"/desktop/reminders/{due.json()['id']}/acknowledge?kind=next_step"
+    )
+    await anonymous_client.post(
+        f"/desktop/reminders/{overdue.json()['id']}/acknowledge?kind=next_step"
+    )
+    second_scan = await anonymous_client.get("/desktop/reminders/due")
+
+    assert first_ack.status_code == 204
+    assert repeated_ack.status_code == 204
+    assert second_scan.json()["items"] == []
+
+    changed = await anonymous_client.patch(
+        f"/applications/{due.json()['id']}",
+        json={"next_step": "Practice system design aloud"},
+    )
+    third_scan = await anonymous_client.get("/desktop/reminders/due")
+    assert changed.status_code == 200
+    assert third_scan.json()["items"][0]["message"] == "Practice system design aloud"
 
 
 @pytest.mark.anyio

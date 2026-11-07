@@ -94,7 +94,12 @@ async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Pr
   }
 }
 
-function desktopReminderTitle(daysRemaining: number): string {
+function desktopReminderTitle(kind: "deadline" | "next_step", daysRemaining: number): string {
+  if (kind === "next_step") {
+    if (daysRemaining === 0) return "Next action due today";
+    if (daysRemaining === -1) return "Next action overdue by 1 day";
+    return `Next action overdue by ${Math.abs(daysRemaining)} days`;
+  }
   if (daysRemaining === 0) return "Application deadline today";
   if (daysRemaining === 1) return "Application deadline tomorrow";
   return `Application deadline in ${daysRemaining} days`;
@@ -112,10 +117,12 @@ async function showDueDesktopReminders(requestPermissionIfNeeded = false): Promi
     const { items } = await getDueDesktopReminders();
     for (const reminder of items) {
       await sendNotification({
-        title: desktopReminderTitle(reminder.days_remaining),
-        body: `${reminder.company} · ${reminder.role}`
+        title: desktopReminderTitle(reminder.kind, reminder.days_remaining),
+        body: reminder.kind === "next_step"
+          ? `${reminder.company} · ${reminder.message}`
+          : `${reminder.company} · ${reminder.role}`
       });
-      await acknowledgeDesktopReminder(reminder.application_id);
+      await acknowledgeDesktopReminder(reminder.application_id, reminder.kind);
     }
   })();
   try {
@@ -924,7 +931,7 @@ function AccountDialog({
           {outlookSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{outlookSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleApplyOutlookSuggestion(suggestion)}>Apply update</button></article>)}</div>}
         </section>}
         {!confirmingDelete && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
-          <div><h3>{desktopMode ? "Local deadline reminders" : "Deadline reminders"}</h3><p>{desktopMode ? "Receive one Windows notification when an active application enters your reminder window. InternTrack checks while the app is running." : "Receive one email when an active application enters your reminder window."}</p></div>
+          <div><h3>{desktopMode ? "Local reminders" : "Deadline reminders"}</h3><p>{desktopMode ? "Receive Windows notifications for upcoming application deadlines and scheduled next actions. InternTrack checks while the app is running." : "Receive one email when an active application enters your reminder window."}</p></div>
           {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
             <label className="toggle-row">
               <span><strong>{desktopMode ? "Windows notifications" : "Email reminders"}</strong><small>{desktopMode || user.email_verified ? "You can turn these off at any time." : "Verify your email before enabling reminders."}</small></span>
