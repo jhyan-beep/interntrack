@@ -105,7 +105,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.13.0",
+    version="2.14.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -953,7 +953,13 @@ def list_applications(
         Query(description="Case-insensitive company search."),
     ] = None,
     sort_by: Annotated[
-        Literal["deadline", "application_date", "created_at", "company"],
+        Literal[
+            "deadline",
+            "next_step_date",
+            "application_date",
+            "created_at",
+            "company",
+        ],
         Query(description="Field used for sorting."),
     ] = "created_at",
     sort_order: Annotated[
@@ -1004,6 +1010,8 @@ def export_applications_csv(
             "status",
             "application_date",
             "deadline",
+            "next_step",
+            "next_step_date",
             "location",
             "source_url",
             "notes",
@@ -1021,6 +1029,8 @@ def export_applications_csv(
                 sanitize_csv_cell(application.status.value),
                 application.application_date,
                 application.deadline or "",
+                sanitize_csv_cell(application.next_step or ""),
+                application.next_step_date or "",
                 sanitize_csv_cell(application.location or ""),
                 sanitize_csv_cell(application.source_url or ""),
                 sanitize_csv_cell(application.notes or ""),
@@ -1117,6 +1127,21 @@ def update_application(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="deadline cannot be before application_date",
+        )
+    next_step = (
+        application_in.next_step
+        if "next_step" in application_in.model_fields_set
+        else application.next_step
+    )
+    next_step_date = (
+        application_in.next_step_date
+        if "next_step_date" in application_in.model_fields_set
+        else application.next_step_date
+    )
+    if next_step_date is not None and not (next_step or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="next_step is required when next_step_date is set",
         )
 
     return crud.update_application(db, application, application_in)

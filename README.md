@@ -6,12 +6,13 @@ InternTrack is a responsive web application for tracking software engineering in
 
 - Create, read, update, and delete internship applications
 - Filter applications by status and company
-- Sort applications by deadline, application date, created date, or company
+- Sort applications by deadline, next action, application date, created date, or company
 - View application statistics grouped by status
 - Export applications as CSV
 - Responsive dashboard for desktop and mobile
 - Create and edit applications from an accessible form
 - Visual pipeline and upcoming deadline overview
+- Scheduled next steps with a dashboard action queue
 - AI-assisted job-posting import with a review-before-save workflow
 - Email and password accounts with HttpOnly cookie sessions
 - Email verification and secure password reset links
@@ -344,7 +345,7 @@ The default model is `gpt-6-luna`, selected for a focused extraction workload, a
 
 ## CSV migration
 
-The application table accepts UTF-8 CSV files with required `company` and `role` columns. Optional columns are `status`, `application_date`, `deadline`, `location`, `source_url`, and `notes`; the wider format produced by InternTrack's CSV export is also accepted. Preview validates every row, reports up to 20 row-level errors, detects duplicates by normalized company, role, and application date, and shows a small sample before import.
+The application table accepts UTF-8 CSV files with required `company` and `role` columns. Optional columns are `status`, `application_date`, `deadline`, `next_step`, `next_step_date`, `location`, `source_url`, and `notes`; the wider format produced by InternTrack's CSV export is also accepted. Preview validates every row, reports up to 20 row-level errors, detects duplicates by normalized company, role, and application date, and shows a small sample before import.
 
 Imports are atomic: if any row is invalid, no rows are written. Valid duplicate rows are skipped, files are capped at 2 MB in the interface and 5,000 rows in the parser, and every created application remains scoped to the authenticated user.
 
@@ -390,6 +391,7 @@ Each application stores:
 - Status
 - Application date
 - Optional deadline
+- Optional next step and scheduled action date
 - Optional location
 - Optional source URL
 - Optional notes
@@ -421,6 +423,8 @@ Implemented a native Windows tray lifecycle and opt-in hidden autostart flow so 
 Designed a versioned, secret-free backup and restore workflow with schema validation, duplicate-aware merges, transactional replacement, and portable JSON exports for local-first user data.
 
 Built an atomic CSV migration pipeline with typed row validation, duplicate detection, pre-import previews, spreadsheet round trips, and all-or-nothing database writes.
+
+Added scheduled next actions across Alembic, SQLAlchemy, Pydantic, FastAPI, React, CSV migration, portable backups, and dashboard analytics to turn passive application records into an actionable workflow.
 
 ## Product Roadmap
 

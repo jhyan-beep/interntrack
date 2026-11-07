@@ -16,6 +16,8 @@ export interface InternshipApplication {
   status: ApplicationStatus;
   application_date: string;
   deadline: string | null;
+  next_step: string | null;
+  next_step_date: string | null;
   location: string | null;
   source_url: string | null;
   notes: string | null;
@@ -29,6 +31,8 @@ export interface ApplicationInput {
   status: ApplicationStatus;
   application_date: string;
   deadline: string | null;
+  next_step: string | null;
+  next_step_date: string | null;
   location: string | null;
   source_url: string | null;
   notes: string | null;
@@ -52,6 +56,12 @@ export interface ApplicationStats {
   by_status: Partial<Record<ApplicationStatus, number>>;
   upcoming_deadlines: Array<
     Pick<InternshipApplication, "id" | "company" | "role"> & { deadline: string }
+  >;
+  upcoming_actions: Array<
+    Pick<InternshipApplication, "id" | "company" | "role"> & {
+      next_step: string;
+      next_step_date: string;
+    }
   >;
 }
 
@@ -196,5 +206,5 @@ export interface BetaFeedback {
   updated_at: string;
 }
 
-export type SortBy = "deadline" | "application_date" | "created_at" | "company";
+export type SortBy = "deadline" | "next_step_date" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";

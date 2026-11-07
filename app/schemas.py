@@ -32,6 +32,8 @@ class ApplicationBase(BaseModel):
     status: ApplicationStatus = ApplicationStatus.SAVED
     application_date: date = Field(default_factory=date.today)
     deadline: date | None = None
+    next_step: str | None = Field(default=None, max_length=200)
+    next_step_date: date | None = None
     location: str | None = Field(default=None, max_length=120)
     source_url: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=5_000)
@@ -41,10 +43,20 @@ class ApplicationBase(BaseModel):
     def source_url_must_be_http(cls, value: str | None) -> str | None:
         return validate_source_url(value)
 
+    @field_validator("next_step")
+    @classmethod
+    def normalize_next_step(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @model_validator(mode="after")
     def deadline_cannot_be_before_application_date(self) -> "ApplicationBase":
         if self.deadline is not None and self.deadline < self.application_date:
             raise ValueError("deadline cannot be before application_date")
+        if self.next_step_date is not None and not (self.next_step or "").strip():
+            raise ValueError("next_step is required when next_step_date is set")
         return self
 
 
@@ -58,6 +70,8 @@ class ApplicationUpdate(BaseModel):
     status: ApplicationStatus | None = None
     application_date: date | None = None
     deadline: date | None = None
+    next_step: str | None = Field(default=None, max_length=200)
+    next_step_date: date | None = None
     location: str | None = Field(default=None, max_length=120)
     source_url: str | None = Field(default=None, max_length=500)
     notes: str | None = Field(default=None, max_length=5_000)
@@ -66,6 +80,14 @@ class ApplicationUpdate(BaseModel):
     @classmethod
     def source_url_must_be_http(cls, value: str | None) -> str | None:
         return validate_source_url(value)
+
+    @field_validator("next_step")
+    @classmethod
+    def normalize_next_step(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
     @model_validator(mode="after")
     def deadline_cannot_be_before_application_date(self) -> "ApplicationUpdate":
@@ -80,6 +102,12 @@ class ApplicationUpdate(BaseModel):
             and self.deadline < self.application_date
         ):
             raise ValueError("deadline cannot be before application_date")
+        if (
+            self.next_step_date is not None
+            and self.next_step is not None
+            and not self.next_step.strip()
+        ):
+            raise ValueError("next_step is required when next_step_date is set")
         return self
 
 
@@ -100,11 +128,22 @@ class UpcomingDeadline(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UpcomingAction(BaseModel):
+    id: int
+    company: str
+    role: str
+    next_step: str
+    next_step_date: date
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ApplicationStats(BaseModel):
     total_applications: int
     active_applications: int
     by_status: dict[str, int]
     upcoming_deadlines: list[UpcomingDeadline]
+    upcoming_actions: list[UpcomingAction]
 
 
 class PaginatedApplications(BaseModel):

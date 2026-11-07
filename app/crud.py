@@ -9,6 +9,7 @@ from app.schemas import ApplicationCreate, ApplicationUpdate
 
 SORT_COLUMNS = {
     "deadline": InternshipApplication.deadline,
+    "next_step_date": InternshipApplication.next_step_date,
     "application_date": InternshipApplication.application_date,
     "created_at": InternshipApplication.created_at,
     "company": InternshipApplication.company,
@@ -135,10 +136,23 @@ def get_application_stats(db: Session, user_id: int) -> dict:
         ).all()
     )
 
+    upcoming_actions = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(InternshipApplication.user_id == user_id)
+            .where(InternshipApplication.next_step.is_not(None))
+            .where(InternshipApplication.next_step_date.is_not(None))
+            .where(InternshipApplication.next_step_date >= date.today())
+            .order_by(InternshipApplication.next_step_date.asc())
+            .limit(5)
+        ).all()
+    )
+
     return {
         "total_applications": total,
         "active_applications": active_count,
         "by_status": by_status,
         "upcoming_deadlines": upcoming_deadlines,
+        "upcoming_actions": upcoming_actions,
     }
 
