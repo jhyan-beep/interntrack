@@ -10,6 +10,8 @@ import type {
   DesktopAiSettings,
   DesktopEmailConnection,
   DesktopEmailConnectResult,
+  DesktopRecoveryRestoreResult,
+  DesktopRecoveryState,
   DesktopReminders,
   EmailSyncResult,
   InternshipApplication,
@@ -259,6 +261,29 @@ export function restorePortableBackup(
       confirm_replace: mode === "replace"
     })
   });
+}
+
+export function getDesktopRecoveryState(): Promise<DesktopRecoveryState> {
+  return request("/desktop/recovery/snapshots");
+}
+
+export function prepareDesktopRecovery(
+  snapshotId: string,
+  password: string,
+  confirmation: string
+): Promise<DesktopRecoveryRestoreResult> {
+  return request("/desktop/recovery/restore", {
+    method: "POST",
+    body: JSON.stringify({
+      snapshot_id: snapshotId,
+      password,
+      confirmation
+    })
+  });
+}
+
+export function cancelDesktopRecovery(): Promise<DesktopRecoveryState> {
+  return request("/desktop/recovery/restore", { method: "DELETE" });
 }
 
 export function getDueDesktopReminders(): Promise<DesktopReminders> {

@@ -126,6 +126,9 @@ Caddyfile              Automatic HTTPS reverse proxy
 | GET | `/desktop/backups/export` | Download a portable local workspace backup |
 | POST | `/desktop/backups/preview` | Validate a backup and preview merge results |
 | POST | `/desktop/backups/restore` | Merge or replace a local workspace from backup |
+| GET | `/desktop/recovery/snapshots` | List verified local database recovery points |
+| POST | `/desktop/recovery/restore` | Password-confirm a recovery point for the next launch |
+| DELETE | `/desktop/recovery/restore` | Cancel a staged database restore |
 | POST | `/auth/email/verification/request` | Send or resend a verification email |
 | POST | `/auth/email/verify` | Verify an email with a single-use token |
 | POST | `/auth/password/forgot` | Request a password-reset email |
@@ -220,6 +223,8 @@ The desktop edition runs the same React and FastAPI product entirely on the user
 Desktop data is stored in Tauri's per-user local app-data directory. The generated session secret and `interntrack.db` stay there across upgrades. The API only listens on `127.0.0.1`.
 
 Before applying a pending schema migration, the desktop sidecar uses SQLite's online backup API to create and integrity-check a consistent snapshot under `automatic-backups/` in the same per-user data directory. The snapshot is made visible atomically, only the five newest automatic snapshots are retained, and no snapshot is created when the database is already current. If migration fails, startup stops and the error identifies the verified recovery file instead of continuing with an unknown schema. These snapshots can contain private account and application data and should remain on the user's computer; the secret-free portable JSON export is still the appropriate format for moving data between devices.
+
+**Account settings → Automatic recovery** lists upgrade snapshots and safety copies from earlier restores without exposing arbitrary filesystem paths. Preparing a full-database restore requires the current password and the exact confirmation text `RESTORE`. The selected snapshot is validated and staged while the current workspace keeps running; the replacement happens before SQLAlchemy or Alembic opens the database on the next full app launch. InternTrack first snapshots the workspace being replaced under `recovery-backups/`, then migrates the restored database forward if necessary. A staged restore can be cancelled before restart. Because closing the window leaves the tray process running, users must choose **Quit** from the tray menu and reopen InternTrack to apply it.
 
 To build the installer on Windows, install Python 3.12, Node.js, pnpm, Rust, and the Tauri Windows prerequisites, then run:
 
@@ -429,6 +434,8 @@ Built an atomic CSV migration pipeline with typed row validation, duplicate dete
 Added scheduled next actions across Alembic, SQLAlchemy, Pydantic, FastAPI, React, CSV migration, portable backups, and dashboard analytics to turn passive application records into an actionable workflow.
 
 Extended the local Windows reminder engine with idempotent next-action notifications, seven-day offline recovery, typed reminder kinds, and delivery keys that safely re-notify after an action changes.
+
+Engineered crash-safe desktop upgrades and password-confirmed recovery with consistent SQLite snapshots, integrity checks, atomic staging, bounded retention, rollback safety copies, and migration-aware startup restoration.
 
 ## Product Roadmap
 

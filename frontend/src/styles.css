@@ -257,6 +257,25 @@ tbody tr:hover { background: #fbfcff; }
 .reminder-timezone strong { color: #445163; }
 .reminder-save { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .reminder-save span { color: #287b4c; font-size: 12px; font-weight: 700; }
+.recovery-empty { margin-top: 16px !important; padding: 12px; border-radius: 9px; background: #f1f4f7; }
+.recovery-list { margin-top: 15px; overflow: hidden; border: 1px solid #dfe3df; border-radius: 11px; background: white; }
+.recovery-list label { padding: 12px; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.recovery-list label + label { border-top: 1px solid #eceeea; }
+.recovery-list label.invalid { cursor: not-allowed; opacity: .55; }
+.recovery-list input { margin-top: 3px; accent-color: var(--blue); }
+.recovery-list span { display: grid; gap: 3px; }
+.recovery-list strong { color: #344054; font-size: 12px; }
+.recovery-list small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.recovery-confirmation { margin-top: 14px; padding: 14px; border: 1px solid #efd1cc; border-radius: 11px; background: #fff8f6; }
+.recovery-confirmation > p { color: #7f332b; }
+.recovery-confirmation label { margin-top: 12px; display: grid; gap: 6px; color: #5d403c; font-size: 11px; font-weight: 700; }
+.recovery-confirmation input { height: 40px; padding: 0 11px; border: 1px solid #dfc0bb; border-radius: 9px; outline: 0; background: white; }
+.recovery-confirmation input:focus { border-color: #bd4438; box-shadow: 0 0 0 3px rgba(189, 68, 56, .1); }
+.recovery-confirmation button { margin-top: 14px; }
+.recovery-pending { margin-top: 15px; padding: 14px; border: 1px solid #b9dfc7; border-radius: 11px; background: #edf8f2; }
+.recovery-pending > strong { color: #216845; font-size: 12px; }
+.recovery-pending p { margin-top: 5px; color: #37634a; }
+.recovery-pending button { margin-top: 12px; }
 .backup-actions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
 .backup-file { position: relative; overflow: hidden; cursor: pointer; }
 .backup-file input { width: 1px; height: 1px; position: absolute; opacity: 0; pointer-events: none; }

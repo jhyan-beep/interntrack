@@ -34,6 +34,13 @@ from app.auth import (
 from app.beta import get_beta_progress, record_product_event, save_beta_feedback
 from app.csv_imports import CsvImportError, analyze_csv_import
 from app.database import get_db, get_settings
+from app.desktop_backups import (
+    DesktopBackupError,
+    cancel_pending_restore,
+    has_pending_restore,
+    list_desktop_snapshots,
+    stage_desktop_restore,
+)
 from app.desktop_secrets import DesktopJsonSecretStore, DesktopSecretError, DesktopSecretStore
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
 from app.email_sync import suggest_status_updates
@@ -74,6 +81,10 @@ from app.schemas import (
     DesktopMicrosoftConnectionRead,
     DesktopMicrosoftConnectRead,
     DesktopMicrosoftConnectRequest,
+    DesktopRecoveryRestoreRequest,
+    DesktopRecoveryRestoreResult,
+    DesktopRecoverySnapshotRead,
+    DesktopRecoveryState,
     DesktopRemindersRead,
     EmailTokenRequest,
     GmailSyncRead,
@@ -106,7 +117,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.16.0",
+    version="2.17.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -700,6 +711,57 @@ def restore_backup(
         restore_in.backup,
         restore_in.mode,
     )
+
+
+def _desktop_recovery_state(data_directory: Path) -> DesktopRecoveryState:
+    snapshots = [
+        DesktopRecoverySnapshotRead(
+            snapshot_id=snapshot.snapshot_id,
+            kind=snapshot.kind,
+            created_at=snapshot.created_at,
+            size_bytes=snapshot.size_bytes,
+            revisions=list(snapshot.revisions),
+            valid=snapshot.valid,
+        )
+        for snapshot in list_desktop_snapshots(data_directory)
+    ]
+    return DesktopRecoveryState(
+        snapshots=snapshots,
+        pending_restore=has_pending_restore(data_directory),
+    )
+
+
+@app.get("/desktop/recovery/snapshots", response_model=DesktopRecoveryState)
+def get_desktop_recovery_snapshots(user: CurrentUser) -> DesktopRecoveryState:
+    return _desktop_recovery_state(_desktop_data_directory())
+
+
+@app.post(
+    "/desktop/recovery/restore",
+    response_model=DesktopRecoveryRestoreResult,
+)
+def prepare_desktop_recovery(
+    recovery_in: DesktopRecoveryRestoreRequest,
+    user: CurrentUser,
+) -> DesktopRecoveryRestoreResult:
+    data_directory = _desktop_data_directory()
+    if not verify_password(recovery_in.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+    try:
+        stage_desktop_restore(data_directory, recovery_in.snapshot_id)
+    except DesktopBackupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    return DesktopRecoveryRestoreResult(snapshot_id=recovery_in.snapshot_id)
+
+
+@app.delete("/desktop/recovery/restore", response_model=DesktopRecoveryState)
+def cancel_desktop_recovery(user: CurrentUser) -> DesktopRecoveryState:
+    data_directory = _desktop_data_directory()
+    cancel_pending_restore(data_directory)
+    return _desktop_recovery_state(data_directory)
 
 
 _ACTIVE_REMINDER_STATUSES = {
