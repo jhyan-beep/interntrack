@@ -23,6 +23,8 @@ SUPPORTED_COLUMNS = {
     "status",
     "application_date",
     "deadline",
+    "next_step",
+    "next_step_date",
     "location",
     "source_url",
     "notes",

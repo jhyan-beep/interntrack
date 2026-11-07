@@ -13,6 +13,8 @@ async def make_application(
     status: str = "applied",
     application_date: str = "2026-09-24",
     deadline: str | None = "2026-10-15",
+    next_step: str | None = None,
+    next_step_date: str | None = None,
 ) -> dict:
     payload = {
         "company": company,
@@ -20,6 +22,8 @@ async def make_application(
         "status": status,
         "application_date": application_date,
         "deadline": deadline,
+        "next_step": next_step,
+        "next_step_date": next_step_date,
         "location": "San Francisco, CA",
         "source_url": "https://example.com/jobs/swe-intern",
         "notes": "Applied through company careers page.",
@@ -72,6 +76,29 @@ async def test_list_applications_sorts_by_deadline(client: AsyncClient) -> None:
     assert [item["company"] for item in data] == ["Soon Co", "Later Co"]
 
 
+async def test_list_applications_sorts_by_next_step_date(client: AsyncClient) -> None:
+    await make_application(
+        client,
+        company="Later Action",
+        next_step="Prepare behavioral stories",
+        next_step_date="2026-11-20",
+    )
+    await make_application(
+        client,
+        company="Soon Action",
+        next_step="Send recruiter follow-up",
+        next_step_date="2026-10-01",
+    )
+
+    response = await client.get("/applications?sort_by=next_step_date&sort_order=asc")
+
+    assert response.status_code == 200
+    assert [item["company"] for item in response.json()["items"]] == [
+        "Soon Action",
+        "Later Action",
+    ]
+
+
 async def test_update_application_status(client: AsyncClient) -> None:
     created = await make_application(client, status="applied")
 
@@ -99,6 +126,33 @@ async def test_update_rejects_null_required_field(client: AsyncClient) -> None:
     response = await client.patch(f"/applications/{created['id']}", json={"company": None})
 
     assert response.status_code == 422
+
+
+async def test_create_rejects_next_step_date_without_next_step(client: AsyncClient) -> None:
+    response = await client.post(
+        "/applications",
+        json={
+            "company": "Example Co",
+            "role": "Software Engineer Intern",
+            "application_date": "2026-09-24",
+            "next_step_date": "2026-10-01",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_update_rejects_clearing_scheduled_next_step(client: AsyncClient) -> None:
+    created = await make_application(
+        client,
+        next_step="Prepare technical examples",
+        next_step_date="2026-10-01",
+    )
+    response = await client.patch(
+        f"/applications/{created['id']}",
+        json={"next_step": None},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "next_step is required when next_step_date is set"
 
 
 async def test_create_rejects_invalid_source_url(client: AsyncClient) -> None:
@@ -151,6 +205,34 @@ async def test_stats_returns_counts_and_upcoming_deadlines(client: AsyncClient) 
     assert [item["company"] for item in data["upcoming_deadlines"]] == ["Google", "OpenAI"]
 
 
+async def test_stats_returns_upcoming_actions(client: AsyncClient) -> None:
+    application_date = date.today().isoformat()
+    await make_application(
+        client,
+        company="Datadog",
+        application_date=application_date,
+        deadline=None,
+        next_step="Practice coding interview",
+        next_step_date=(date.today() + timedelta(days=2)).isoformat(),
+    )
+    await make_application(
+        client,
+        company="Stripe",
+        application_date=application_date,
+        deadline=None,
+        next_step="Send thank-you note",
+        next_step_date=(date.today() + timedelta(days=1)).isoformat(),
+    )
+
+    response = await client.get("/stats")
+
+    assert response.status_code == 200
+    assert [item["company"] for item in response.json()["upcoming_actions"]] == [
+        "Stripe",
+        "Datadog",
+    ]
+
+
 async def test_export_applications_csv(client: AsyncClient) -> None:
     await make_application(client, company="OpenAI")
 
@@ -159,6 +241,7 @@ async def test_export_applications_csv(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert "company,role,status" in response.text
+    assert "deadline,next_step,next_step_date,location" in response.text
     assert "OpenAI,Software Engineer Intern,applied" in response.text
 
 

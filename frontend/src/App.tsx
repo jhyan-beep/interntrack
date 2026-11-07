@@ -80,7 +80,8 @@ const EMPTY_STATS: ApplicationStats = {
   total_applications: 0,
   active_applications: 0,
   by_status: {},
-  upcoming_deadlines: []
+  upcoming_deadlines: [],
+  upcoming_actions: []
 };
 
 async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Promise<boolean> {
@@ -140,6 +141,8 @@ const EMPTY_FORM: ApplicationInput = {
   status: "saved",
   application_date: today(),
   deadline: null,
+  next_step: null,
+  next_step_date: null,
   location: null,
   source_url: null,
   notes: null
@@ -201,6 +204,8 @@ function ApplicationModal({
     status: application.status,
     application_date: application.application_date,
     deadline: application.deadline,
+    next_step: application.next_step,
+    next_step_date: application.next_step_date,
     location: application.location,
     source_url: application.source_url,
     notes: application.notes
@@ -262,6 +267,8 @@ function ApplicationModal({
             <label>Location<input maxLength={120} value={form.location ?? ""} onChange={(event) => setField("location", event.target.value || null)} placeholder="City, state or Remote" /></label>
             <label>Application date<input type="date" required value={form.application_date} onChange={(event) => setField("application_date", event.target.value)} /></label>
             <label>Deadline<input type="date" min={form.application_date} value={form.deadline ?? ""} onChange={(event) => setField("deadline", event.target.value || null)} /></label>
+            <label>Next step<input maxLength={200} value={form.next_step ?? ""} onChange={(event) => { const value = event.target.value; setField("next_step", value || null); if (!value) setField("next_step_date", null); }} placeholder="e.g. Prepare system design examples" /></label>
+            <label>Next step date<input type="date" disabled={!form.next_step} value={form.next_step_date ?? ""} onChange={(event) => setField("next_step_date", event.target.value || null)} /></label>
             <label className="full-width">Job posting URL<input type="url" maxLength={500} value={form.source_url ?? ""} onChange={(event) => setField("source_url", event.target.value || null)} placeholder="https://company.com/jobs/..." /></label>
             <label className="full-width">Notes<textarea rows={4} value={form.notes ?? ""} onChange={(event) => setField("notes", event.target.value || null)} placeholder="Referral, recruiter name, interview prep notes…" /></label>
           </div>
@@ -405,7 +412,7 @@ function CsvImportModal({
           <div><p className="eyebrow">Spreadsheet migration</p><h2 id="csv-import-title">Import applications from CSV</h2></div>
           <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close CSV import"><Icon name="close" /></button>
         </div>
-        <p className="csv-import-intro">Choose a UTF-8 CSV with <strong>company</strong> and <strong>role</strong> columns. Status, application_date, deadline, location, source_url, and notes are optional. InternTrack validates every row before saving anything.</p>
+        <p className="csv-import-intro">Choose a UTF-8 CSV with <strong>company</strong> and <strong>role</strong> columns. Status, dates, next_step, location, source_url, and notes are optional. InternTrack validates every row before saving anything.</p>
         <label className="csv-file-picker"><Icon name="upload" size={22} /><span><strong>{fileName || "Choose a CSV file"}</strong><small>Up to 2 MB or 5,000 rows</small></span><input type="file" accept="text/csv,.csv" disabled={busy} onChange={(event) => void handleFile(event.target.files?.[0])} /></label>
         {busy && !preview && <div className="csv-import-loading"><span className="loader" /><p>Checking rows…</p></div>}
         {preview && <div className="csv-preview">
@@ -1264,6 +1271,8 @@ export default function App() {
       status: "saved",
       application_date: today(),
       deadline: draft.deadline,
+      next_step: null,
+      next_step_date: null,
       location: draft.location,
       source_url: draft.source_url,
       notes: draft.notes
@@ -1287,6 +1296,7 @@ export default function App() {
   }
 
   const upcoming = useMemo(() => stats.upcoming_deadlines.slice(0, 4), [stats.upcoming_deadlines]);
+  const upcomingActions = useMemo(() => stats.upcoming_actions.slice(0, 4), [stats.upcoming_actions]);
 
   if (authLoading) {
     return <div className="app-loading"><span className="loader" /><p>Opening InternTrack…</p></div>;
@@ -1344,6 +1354,13 @@ export default function App() {
               return <div className="deadline-item" key={item.id}><div className="date-block"><strong>{new Date(`${item.deadline}T00:00:00`).toLocaleDateString("en-US", { day: "2-digit" })}</strong><span>{new Date(`${item.deadline}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}</span></div><div><strong>{item.company}</strong><span>{item.role}</span></div><small>{remaining === 0 ? "Today" : `${remaining}d`}</small></div>;
             })}</div> : <div className="small-empty"><Icon name="calendar" /><p>No upcoming deadlines yet.</p></div>}
           </article>
+          <article className="panel action-panel">
+            <div className="panel-heading"><div><p className="eyebrow">Stay moving</p><h2>Next actions</h2></div><Icon name="arrow" /></div>
+            {upcomingActions.length ? <div className="deadline-list">{upcomingActions.map((item) => {
+              const remaining = daysUntil(item.next_step_date);
+              return <div className="deadline-item action-item" key={item.id}><div className="date-block"><strong>{new Date(`${item.next_step_date}T00:00:00`).toLocaleDateString("en-US", { day: "2-digit" })}</strong><span>{new Date(`${item.next_step_date}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}</span></div><div><strong>{item.next_step}</strong><span>{item.company} · {item.role}</span></div><small>{remaining === 0 ? "Today" : `${remaining}d`}</small></div>;
+            })}</div> : <div className="small-empty"><Icon name="arrow" /><p>Add a next step to keep momentum.</p></div>}
+          </article>
         </section>
 
         <section className="applications-section" id="applications">
@@ -1352,17 +1369,17 @@ export default function App() {
           <div className="toolbar">
             <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
             <label><span className="sr-only">Filter by status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationStatus | "all")}><option value="all">All statuses</option>{STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
-            <label><span className="sr-only">Sort applications</span><select value={`${sortBy}:${sortOrder}`} onChange={(event) => { const [field, order] = event.target.value.split(":"); setSortBy(field as SortBy); setSortOrder(order as SortOrder); }}><option value="created_at:desc">Recently added</option><option value="deadline:asc">Deadline soonest</option><option value="application_date:desc">Recently applied</option><option value="company:asc">Company A–Z</option></select></label>
+            <label><span className="sr-only">Sort applications</span><select value={`${sortBy}:${sortOrder}`} onChange={(event) => { const [field, order] = event.target.value.split(":"); setSortBy(field as SortBy); setSortOrder(order as SortOrder); }}><option value="created_at:desc">Recently added</option><option value="next_step_date:asc">Next action soonest</option><option value="deadline:asc">Deadline soonest</option><option value="application_date:desc">Recently applied</option><option value="company:asc">Company A–Z</option></select></label>
             {hasFilters && <button className="clear-button" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Clear filters</button>}
           </div>
 
           <div className="table-wrap">
             {loading ? <div className="loading-state"><span className="loader" /><p>Loading your applications…</p></div> : applications.length ? <>
               <table>
-                <thead><tr><th>Company & role</th><th>Status</th><th>Applied</th><th>Deadline</th><th>Location</th><th><span className="sr-only">Actions</span></th></tr></thead>
-                <tbody>{applications.map((application) => <tr key={application.id}><td><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div></td><td><StatusBadge status={application.status} /></td><td>{formatDate(application.application_date)}</td><td>{formatDate(application.deadline)}</td><td>{application.location || "—"}</td><td><div className="row-actions">{application.source_url && <a className="icon-button" href={application.source_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${application.company} job posting`}><Icon name="link" size={17} /></a>}<button className="icon-button" onClick={() => openEdit(application)} aria-label={`Edit ${application.company} application`}><Icon name="edit" size={17} /></button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></td></tr>)}</tbody>
+                <thead><tr><th>Company & role</th><th>Status</th><th>Applied</th><th>Deadline</th><th>Next step</th><th>Location</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>{applications.map((application) => <tr key={application.id}><td><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div></td><td><StatusBadge status={application.status} /></td><td>{formatDate(application.application_date)}</td><td>{formatDate(application.deadline)}</td><td><div className="next-step-cell"><strong>{application.next_step || "—"}</strong>{application.next_step_date && <span>{formatDate(application.next_step_date)}</span>}</div></td><td>{application.location || "—"}</td><td><div className="row-actions">{application.source_url && <a className="icon-button" href={application.source_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${application.company} job posting`}><Icon name="link" size={17} /></a>}<button className="icon-button" onClick={() => openEdit(application)} aria-label={`Edit ${application.company} application`}><Icon name="edit" size={17} /></button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></td></tr>)}</tbody>
               </table>
-              <div className="mobile-application-list">{applications.map((application) => <article className="application-card" key={application.id}><div className="application-card-top"><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div><StatusBadge status={application.status} /></div><dl><div><dt>Applied</dt><dd>{formatDate(application.application_date)}</dd></div><div><dt>Deadline</dt><dd>{formatDate(application.deadline)}</dd></div></dl><div className="application-card-actions"><button className="button secondary" onClick={() => openEdit(application)}><Icon name="edit" size={16} /> Edit</button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></article>)}</div>
+              <div className="mobile-application-list">{applications.map((application) => <article className="application-card" key={application.id}><div className="application-card-top"><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div><StatusBadge status={application.status} /></div><dl><div><dt>Applied</dt><dd>{formatDate(application.application_date)}</dd></div><div><dt>Deadline</dt><dd>{formatDate(application.deadline)}</dd></div>{application.next_step && <div><dt>Next step</dt><dd>{application.next_step}{application.next_step_date ? ` · ${formatDate(application.next_step_date)}` : ""}</dd></div>}</dl><div className="application-card-actions"><button className="button secondary" onClick={() => openEdit(application)}><Icon name="edit" size={16} /> Edit</button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></article>)}</div>
             </> : <div className="empty-state"><span className="empty-illustration"><Icon name="briefcase" size={34} /></span><h3>{hasFilters ? "No matching applications" : "Your next opportunity starts here"}</h3><p>{hasFilters ? "Try clearing a filter or searching for another company." : "Add your first application and keep every next step within reach."}</p>{hasFilters ? <button className="button secondary" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Clear filters</button> : <button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add first application</button>}</div>}
           </div>
           {pagination.pages > 1 && <div className="pagination" aria-label="Application pages"><p>{pagination.total} applications · Page {page} of {pagination.pages}</p><div><button className="button secondary" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button><button className="button secondary" disabled={page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Next</button></div></div>}

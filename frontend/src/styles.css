@@ -97,7 +97,7 @@ h1 em::after { content: ""; position: absolute; left: 2px; right: 0; bottom: -4p
 .metric-card strong { display: block; margin-bottom: 5px; font: 800 30px/1 "Manrope", sans-serif; color: var(--ink); }
 .metric-card small { color: #8a93a0; font-size: 11px; }
 
-.insight-grid { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr); gap: 18px; }
+.insight-grid { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(260px, .78fr) minmax(260px, .78fr); gap: 18px; }
 .panel { padding: 26px; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); box-shadow: var(--shadow); }
 .panel-heading, .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .panel-heading h2, .section-heading h2 { margin: 0; font-size: 21px; letter-spacing: -.7px; }
@@ -122,6 +122,7 @@ h1 em::after { content: ""; position: absolute; left: 2px; right: 0; bottom: -4p
 .deadline-item > div:nth-child(2) strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .deadline-item > div:nth-child(2) span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
 .deadline-item small { color: var(--coral); font-size: 11px; font-weight: 700; }
+.action-item small { color: var(--green); }
 .small-empty { min-height: 190px; display: grid; place-content: center; justify-items: center; color: #9aa2ad; }
 .small-empty p { margin: 10px 0 0; font-size: 13px; }
 
@@ -147,6 +148,9 @@ tbody tr:hover { background: #fbfcff; }
 .company-cell > div { min-width: 0; display: grid; gap: 4px; }
 .company-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-size: 13px; }
 .company-cell span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.next-step-cell { min-width: 150px; max-width: 230px; display: grid; gap: 4px; }
+.next-step-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #344054; font-size: 12px; }
+.next-step-cell span { color: var(--green); font-size: 10px; font-weight: 700; }
 .row-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .icon-button { width: 34px; height: 34px; padding: 0; border: 0; border-radius: 9px; display: inline-grid; place-items: center; color: #697586; background: transparent; }
 .icon-button:hover { color: var(--blue); background: #edf3ff; }
@@ -340,7 +344,7 @@ footer span { font: 800 15px "Manrope", sans-serif; color: var(--ink); }
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
   .insight-grid { grid-template-columns: 1fr; }
   .deadline-panel { min-height: auto; }
-  table { min-width: 900px; }
+  table { min-width: 1100px; }
   .table-wrap { overflow-x: auto; }
 }
 
@@ -382,6 +386,7 @@ footer span { font: 800 15px "Manrope", sans-serif; color: var(--ink); }
   .application-card .company-cell { min-width: 0; }
   .application-card dl { margin: 18px 0; padding: 14px 0; border-top: 1px solid #ecebe6; border-bottom: 1px solid #ecebe6; display: grid; grid-template-columns: 1fr 1fr; }
   .application-card dl div { display: grid; gap: 4px; }
+  .application-card dl div:nth-child(3) { grid-column: 1 / -1; margin-top: 12px; }
   .application-card dt { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .6px; }
   .application-card dd { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; }
   .application-card-actions { display: flex; justify-content: space-between; }

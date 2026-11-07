@@ -169,6 +169,11 @@ class InternshipApplication(Base):
         Index("ix_internship_applications_user_created", "user_id", "created_at", "id"),
         Index("ix_internship_applications_user_status", "user_id", "status"),
         Index("ix_internship_applications_user_deadline", "user_id", "deadline"),
+        Index(
+            "ix_internship_applications_user_next_step_date",
+            "user_id",
+            "next_step_date",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -189,6 +194,8 @@ class InternshipApplication(Base):
     )
     application_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
     deadline: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    next_step: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    next_step_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
