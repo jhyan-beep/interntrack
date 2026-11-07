@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -909,6 +910,21 @@ function AccountDialog({
     }
   }
 
+  async function handleRestartForRecovery() {
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      await invoke("restart_for_pending_restore");
+      setRecoveryMessage("Restarting InternTrack and applying the selected recovery point…");
+    } catch {
+      setRecoveryBusy(false);
+      setRecoveryMessage(
+        "Automatic restart is unavailable here. Choose Quit from the InternTrack system-tray menu, then reopen the installed app."
+      );
+    }
+  }
+
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -943,8 +959,8 @@ function AccountDialog({
           <div><h3>Automatic recovery</h3><p>Return the entire local workspace to a snapshot made before an upgrade or earlier restore. The current workspace is backed up again immediately before replacement.</p></div>
           {!recovery ? <p className="settings-loading">Checking recovery points…</p> : recovery.pending_restore ? <div className="recovery-pending" role="status">
             <strong>Restore ready for next launch</strong>
-            <p>Choose <strong>Quit</strong> from the InternTrack system-tray menu, then reopen the app. Closing only the window keeps InternTrack running.</p>
-            <button className="button secondary compact" type="button" disabled={recoveryBusy} onClick={() => void handleCancelRecovery()}>{recoveryBusy ? "Cancelling…" : "Cancel pending restore"}</button>
+            <p>Restart InternTrack to apply it. The desktop shell checks that a staged restore exists before restarting; closing only the window keeps the current process running.</p>
+            <div className="recovery-pending-actions"><button className="button secondary compact" type="button" disabled={recoveryBusy} onClick={() => void handleCancelRecovery()}>Cancel pending restore</button><button className="button primary compact" type="button" disabled={recoveryBusy} onClick={() => void handleRestartForRecovery()}>{recoveryBusy ? "Restarting…" : "Restart and restore now"}</button></div>
           </div> : recovery.snapshots.length === 0 ? <p className="recovery-empty">No automatic recovery points yet. One will appear before a future database upgrade.</p> : <>
             <div className="recovery-list">{recovery.snapshots.map((snapshot) => <label className={!snapshot.valid ? "invalid" : ""} key={snapshot.snapshot_id}>
               <input type="radio" name="recovery-snapshot" value={snapshot.snapshot_id} checked={selectedSnapshot === snapshot.snapshot_id} disabled={!snapshot.valid || recoveryBusy} onChange={() => setSelectedSnapshot(snapshot.snapshot_id)} />
