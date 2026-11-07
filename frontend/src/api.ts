@@ -5,6 +5,8 @@ import type {
   AiJobDraft,
   BetaFeedback,
   BetaProgress,
+  CsvImportPreview,
+  CsvImportResult,
   DesktopAiSettings,
   DesktopEmailConnection,
   DesktopEmailConnectResult,
@@ -85,6 +87,20 @@ export function getApplications(filters: {
 
 export function getStats(): Promise<ApplicationStats> {
   return request("/stats");
+}
+
+export function previewCsvImport(csvText: string): Promise<CsvImportPreview> {
+  return request("/applications/import/preview", {
+    method: "POST",
+    body: JSON.stringify({ csv_text: csvText })
+  });
+}
+
+export function importCsv(csvText: string): Promise<CsvImportResult> {
+  return request("/applications/import", {
+    method: "POST",
+    body: JSON.stringify({ csv_text: csvText })
+  });
 }
 
 export function getCurrentUser(): Promise<User> {

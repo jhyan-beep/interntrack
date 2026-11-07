@@ -32,6 +32,7 @@ from app.auth import (
     verify_password,
 )
 from app.beta import get_beta_progress, record_product_event, save_beta_feedback
+from app.csv_imports import CsvImportError, analyze_csv_import
 from app.database import get_db, get_settings
 from app.desktop_secrets import DesktopJsonSecretStore, DesktopSecretError, DesktopSecretStore
 from app.email_delivery import enqueue_email, password_reset_email, verification_email
@@ -60,6 +61,9 @@ from app.schemas import (
     BetaFeedbackCreate,
     BetaFeedbackRead,
     BetaProgress,
+    CsvImportPreview,
+    CsvImportRequest,
+    CsvImportResult,
     DeleteAccountRequest,
     DesktopAiSettingsRead,
     DesktopAiSettingsUpdate,
@@ -101,7 +105,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.12.0",
+    version="2.13.0",
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -1030,6 +1034,53 @@ def export_applications_csv(
         iter([buffer.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=applications.csv"},
+    )
+
+
+@app.post("/applications/import/preview", response_model=CsvImportPreview)
+def preview_csv_import(
+    import_in: CsvImportRequest,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> CsvImportPreview:
+    try:
+        return analyze_csv_import(db, user, import_in.csv_text).preview
+    except CsvImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/applications/import", response_model=CsvImportResult)
+def import_applications_csv(
+    import_in: CsvImportRequest,
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> CsvImportResult:
+    try:
+        analysis = analyze_csv_import(db, user, import_in.csv_text)
+    except CsvImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    if analysis.preview.invalid_rows:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Fix {analysis.preview.invalid_rows} invalid row(s) before importing"
+            ),
+        )
+
+    for application in analysis.applications:
+        db.add(InternshipApplication(**application.model_dump(), user_id=user.id))
+    if analysis.applications:
+        record_product_event(db, user.id, "csv_import_completed")
+    db.commit()
+    return CsvImportResult(
+        imported_applications=len(analysis.applications),
+        skipped_duplicates=analysis.preview.duplicate_rows,
     )
 
 

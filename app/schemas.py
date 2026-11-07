@@ -115,6 +115,38 @@ class PaginatedApplications(BaseModel):
     pages: int
 
 
+class CsvImportRequest(BaseModel):
+    csv_text: str = Field(..., min_length=1, max_length=2_000_000)
+
+
+class CsvImportRowError(BaseModel):
+    row: int
+    field: str | None = None
+    message: str
+
+
+class CsvImportSample(BaseModel):
+    company: str
+    role: str
+    status: ApplicationStatus
+    application_date: date
+
+
+class CsvImportPreview(BaseModel):
+    total_rows: int
+    importable_rows: int
+    duplicate_rows: int
+    invalid_rows: int
+    errors: list[CsvImportRowError]
+    errors_truncated: bool
+    sample: list[CsvImportSample]
+
+
+class CsvImportResult(BaseModel):
+    imported_applications: int
+    skipped_duplicates: int
+
+
 AiDraftField = Literal["company", "role", "location", "deadline", "source_url", "notes"]
 
 
