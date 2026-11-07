@@ -219,6 +219,8 @@ The desktop edition runs the same React and FastAPI product entirely on the user
 
 Desktop data is stored in Tauri's per-user local app-data directory. The generated session secret and `interntrack.db` stay there across upgrades. The API only listens on `127.0.0.1`.
 
+Before applying a pending schema migration, the desktop sidecar uses SQLite's online backup API to create and integrity-check a consistent snapshot under `automatic-backups/` in the same per-user data directory. The snapshot is made visible atomically, only the five newest automatic snapshots are retained, and no snapshot is created when the database is already current. If migration fails, startup stops and the error identifies the verified recovery file instead of continuing with an unknown schema. These snapshots can contain private account and application data and should remain on the user's computer; the secret-free portable JSON export is still the appropriate format for moving data between devices.
+
 To build the installer on Windows, install Python 3.12, Node.js, pnpm, Rust, and the Tauri Windows prerequisites, then run:
 
 ```powershell
