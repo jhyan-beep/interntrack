@@ -2,6 +2,10 @@
 
 InternTrack is a responsive web application for tracking software engineering internship applications. It combines a React dashboard with a FastAPI and PostgreSQL backend, while staying small enough to explain end to end in an interview.
 
+**Live product site:** [interntrack-student-beta.alanyan-study.chatgpt.site](https://interntrack-student-beta.alanyan-study.chatgpt.site)
+
+> **Early beta:** The product site and source code are public, but there is not yet a signed stable installer for general distribution. Windows release builds remain draft-only until the signing and clean-machine checks in `docs/desktop-release.md` are complete.
+
 ## Features
 
 - Create, read, update, and delete internship applications
@@ -83,6 +87,9 @@ desktop/
   scripts/        Reproducible PyInstaller and Windows build scripts
   src-tauri/      Rust desktop shell and NSIS installer configuration
   ui/             Lightweight startup screen
+marketing-site/
+  .openai/        Sites hosting identity and static deployment manifest
+  dist/           Public landing page, privacy notice, terms, and product assets
 tests/
   conftest.py
   test_applications.py
@@ -267,6 +274,8 @@ pytest
 cd frontend && pnpm build
 ```
 
+The Python suite also validates the static marketing site: internal links and assets must resolve inside `marketing-site/dist`, required product and legal links must remain present, and the site must not silently introduce a data-collection form.
+
 If `DATABASE_URL` is not set, the tests use an in-memory SQLite database. In CI, tests run against PostgreSQL.
 
 ## Production Configuration
@@ -442,4 +451,5 @@ Engineered crash-safe desktop upgrades and password-confirmed recovery with cons
 ## Product Roadmap
 
 The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, private-beta onboarding and metrics, structured logs, HTTPS deployment configuration, guarded server backups, and secret-free portable desktop backups. Remaining launch work includes deploying a pilot, configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing only after retention is validated.
+
 
