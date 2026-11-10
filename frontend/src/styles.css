@@ -396,10 +396,10 @@ footer span { font: 800 15px "Manrope", sans-serif; color: var(--ink); }
   .panel { padding: 21px; }
   .pipeline-list { grid-template-columns: 1fr; gap: 15px; }
   .applications-section { padding: 52px 0 60px; }
-  .section-heading { align-items: flex-start; }
+  .section-heading { align-items: stretch; flex-direction: column; }
   .section-heading h2 { font-size: 24px; }
-  .section-actions { max-width: 270px; }
-  .section-actions .secondary { display: none; }
+  .section-actions { max-width: none; justify-content: flex-start; }
+  .section-actions .secondary:not(.calendar-export-button) { display: none; }
   .toolbar { flex-wrap: wrap; border-radius: 14px 14px 0 0; }
   .search-field { width: 100%; }
   .toolbar label:not(.search-field) { flex: 1; }

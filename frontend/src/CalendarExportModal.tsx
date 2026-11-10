@@ -1,10 +1,25 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { downloadCalendar } from "./api";
 
 export default function CalendarExportModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+    };
+  }, [onClose]);
 
   async function handleDownload() {
     setBusy(true);
@@ -24,7 +39,7 @@ export default function CalendarExportModal({ onClose }: { onClose: () => void }
       <section className="modal calendar-export-dialog" role="dialog" aria-modal="true" aria-labelledby="calendar-export-title">
         <div className="modal-header">
           <div><p className="eyebrow">Keep dates within reach</p><h2 id="calendar-export-title">Export to your calendar</h2></div>
-          <button className="icon-button" onClick={onClose} aria-label="Close calendar export">×</button>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close calendar export">×</button>
         </div>
         <p>Download an .ics file to import into Google Calendar, Outlook, or Apple Calendar.</p>
         <ul className="calendar-export-details">
