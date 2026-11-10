@@ -89,6 +89,33 @@ const EMPTY_STATS: ApplicationStats = {
   upcoming_actions: []
 };
 
+function downloadSupportReport(runtime: RuntimeInfo): void {
+  const generatedAt = new Date();
+  const report = {
+    product: "InternTrack",
+    app_version: runtime.app_version,
+    runtime_mode: runtime.mode,
+    generated_at: generatedAt.toISOString(),
+    locale: navigator.language,
+    time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    user_agent: navigator.userAgent,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    capabilities: {
+      ai_available: runtime.ai_available,
+      email_features_available: runtime.email_features_available
+    }
+  };
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `interntrack-diagnostics-${generatedAt.toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Promise<boolean> {
   try {
     if (await isPermissionGranted()) return true;
@@ -447,7 +474,7 @@ function CsvImportModal({
 
 function AccountDialog({
   user,
-  appVersion,
+  runtime,
   desktopMode,
   onAiAvailabilityChanged,
   onDataRestored,
@@ -456,7 +483,7 @@ function AccountDialog({
   onDeleted
 }: {
   user: User;
-  appVersion: string;
+  runtime: RuntimeInfo;
   desktopMode: boolean;
   onAiAvailabilityChanged: (available: boolean) => void;
   onDataRestored: () => Promise<void>;
@@ -1036,13 +1063,15 @@ function AccountDialog({
           </>}
         </form>}
         {!confirmingDelete && <section className="reminder-settings about-settings">
-          <div><h3>About &amp; support</h3><p>InternTrack {appVersion === "unknown" ? "version unavailable" : appVersion} · Local-first internship application tracking.</p></div>
+          <div><h3>About &amp; support</h3><p>InternTrack {runtime.app_version === "unknown" ? "version unavailable" : runtime.app_version} · Local-first internship application tracking.</p></div>
           <div className="about-links" aria-label="InternTrack links">
             <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site" target="_blank" rel="noopener noreferrer">Product site</a>
             <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
             <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site/terms.html" target="_blank" rel="noopener noreferrer">Terms</a>
-            <a href="https://github.com/jhyan-beep/interntrack/issues" target="_blank" rel="noopener noreferrer">Report an issue</a>
+            <a href="https://github.com/jhyan-beep/interntrack/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report an issue</a>
+            <button type="button" onClick={() => downloadSupportReport(runtime)}>Download diagnostics</button>
           </div>
+          <p className="diagnostics-note">The diagnostics file contains version and device compatibility details only—never applications, account data, email, or API keys.</p>
         </section>}
         {error && !confirmingDelete && <p className="form-error" role="alert">{error}</p>}
         {!confirmingDelete ? <div className="account-actions"><button className="button secondary" onClick={() => void onSignedOut()}>Sign out</button><button className="danger-link" onClick={() => setConfirmingDelete(true)}>Delete account</button></div> : <form className="delete-account-form" onSubmit={handleDelete}><h3>Delete your account?</h3><p>This permanently removes your account and every application. Enter your password to confirm.</p><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setConfirmingDelete(false); setPassword(""); setError(""); }}>Keep account</button><button type="submit" className="button destructive" disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</button></div></form>}
@@ -1499,7 +1528,7 @@ export default function App() {
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {csvModalOpen && <CsvImportModal onClose={() => setCsvModalOpen(false)} onImported={handleCsvImported} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
-      {accountOpen && <AccountDialog user={user} appVersion={runtime.app_version} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {accountOpen && <AccountDialog user={user} runtime={runtime} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
       <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
     </div>
