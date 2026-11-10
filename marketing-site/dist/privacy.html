@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy — InternTrack</title>
+  <meta name="description" content="How InternTrack handles application data, API keys, and optional email metadata.">
+  <link rel="icon" href="/assets/logo-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .legal-wrap{width:min(820px,calc(100% - 40px));margin:0 auto;padding:90px 0 120px}.legal-wrap h1{font-size:clamp(48px,8vw,76px)}.legal-wrap .legal-date{color:var(--muted);margin:24px 0 50px}.legal-wrap h2{font-family:inherit;font-size:22px;letter-spacing:-.4px;margin:42px 0 12px;font-weight:800}.legal-wrap p,.legal-wrap li{color:var(--muted);line-height:1.8;font-size:15px}.legal-wrap li+li{margin-top:8px}.legal-back{display:inline-flex;margin-bottom:45px;text-decoration:none;font-weight:750;color:var(--blue)}
+  </style>
+</head>
+<body>
+  <main class="legal-wrap">
+    <a class="legal-back" href="/">← Back to InternTrack</a>
+    <div class="section-kicker">Privacy</div>
+    <h1>Your data,<br><em>under your control.</em></h1>
+    <p class="legal-date">Effective November 9, 2026</p>
+
+    <h2>Marketing website</h2>
+    <p>This website does not currently use account registration, advertising cookies, analytics, or contact forms. Standard technical request data may be processed by the hosting provider to deliver the site securely.</p>
+
+    <h2>InternTrack desktop application</h2>
+    <p>The Windows desktop edition is designed to store internship application records in a local database on your computer. InternTrack does not require an InternTrack cloud account to use the desktop application.</p>
+
+    <h2>AI-assisted import</h2>
+    <p>If you enable AI-assisted import, you provide your own OpenAI API key. The key is encrypted for the current Windows user using Windows Data Protection API (DPAPI). Text that you choose to import is sent to the OpenAI API to produce structured suggestions. You review and confirm those suggestions before they are saved.</p>
+
+    <h2>Optional email review</h2>
+    <p>If you connect Gmail or Outlook, InternTrack reviews message metadata such as sender, subject, preview text, and dates to suggest possible application updates. The current workflow is designed not to retrieve full message bodies. Connection tokens are stored locally and protected with Windows DPAPI. You choose whether to accept each suggestion.</p>
+
+    <h2>Exports and backups</h2>
+    <p>You can export application records as CSV and create portable local backups. These files may contain personal job-search information, so you are responsible for storing and sharing them safely.</p>
+
+    <h2>Third-party services</h2>
+    <p>Optional features may interact with OpenAI, Google, Microsoft, and GitHub. Their handling of data is governed by their own privacy policies and by the permissions you grant.</p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>Use the core application without connecting email or AI services.</li>
+      <li>Disconnect optional integrations through the application settings.</li>
+      <li>Delete your local database and exported backup files from your computer.</li>
+      <li>Inspect the source code and report privacy concerns through the project repository.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>For privacy questions or security reports, open an issue in the <a href="https://github.com/jhyan-beep/interntrack/issues">InternTrack GitHub repository</a>. Avoid including sensitive personal information in a public issue.</p>
+  </main>
+</body>
+</html>
+

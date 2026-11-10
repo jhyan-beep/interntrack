@@ -1,0 +1,1540 @@
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled
+} from "@tauri-apps/plugin-autostart";
+import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import {
+  acknowledgeDesktopReminder,
+  ApiError,
+  cancelDesktopRecovery,
+  connectDesktopGoogle,
+  connectDesktopMicrosoft,
+  createApplication,
+  deleteAccount,
+  deleteApplication,
+  deleteDesktopAiSettings,
+  disconnectDesktopGoogle,
+  disconnectDesktopMicrosoft,
+  downloadCsv,
+  downloadPortableBackup,
+  getApplications,
+  getBetaProgress,
+  getCurrentUser,
+  getDesktopAiSettings,
+  getDesktopGoogleConnection,
+  getDesktopMicrosoftConnection,
+  getDesktopRecoveryState,
+  getDueDesktopReminders,
+  getRuntimeInfo,
+  getReminderSettings,
+  getStats,
+  importCsv,
+  logout,
+  parseJobPosting,
+  previewCsvImport,
+  previewPortableBackup,
+  prepareDesktopRecovery,
+  recordBetaSession,
+  requestEmailVerification,
+  restorePortableBackup,
+  submitBetaFeedback,
+  syncDesktopGoogle,
+  syncDesktopMicrosoft,
+  updateDesktopAiSettings,
+  updateReminderSettings,
+  verifyEmail,
+  updateApplication
+} from "./api";
+import AuthScreen from "./AuthScreen";
+import CalendarExportModal from "./CalendarExportModal";
+import {
+  STATUSES,
+  type AiJobDraft,
+  type BetaProgress,
+  type CsvImportPreview,
+  type CsvImportResult,
+  type DesktopAiSettings,
+  type DesktopEmailConnection,
+  type DesktopRecoveryState,
+  type EmailStatusSuggestion,
+  type ApplicationInput,
+  type ApplicationStats,
+  type ApplicationStatus,
+  type InternshipApplication,
+  type PortableBackup,
+  type PortableBackupPreview,
+  type ReminderSettings,
+  type RuntimeInfo,
+  type SortBy,
+  type SortOrder,
+  type User
+} from "./types";
+
+const STATUS_LABELS: Record<ApplicationStatus, string> = {
+  saved: "Saved",
+  applied: "Applied",
+  interview: "Interview",
+  offer: "Offer",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn"
+};
+
+const EMPTY_STATS: ApplicationStats = {
+  total_applications: 0,
+  active_applications: 0,
+  by_status: {},
+  upcoming_deadlines: [],
+  upcoming_actions: []
+};
+
+function downloadSupportReport(runtime: RuntimeInfo): void {
+  const generatedAt = new Date();
+  const report = {
+    product: "InternTrack",
+    app_version: runtime.app_version,
+    runtime_mode: runtime.mode,
+    generated_at: generatedAt.toISOString(),
+    locale: navigator.language,
+    time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    user_agent: navigator.userAgent,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    capabilities: {
+      ai_available: runtime.ai_available,
+      email_features_available: runtime.email_features_available
+    }
+  };
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `interntrack-diagnostics-${generatedAt.toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Promise<boolean> {
+  try {
+    if (await isPermissionGranted()) return true;
+    if (!requestIfNeeded) return false;
+    return (await requestPermission()) === "granted";
+  } catch {
+    return false;
+  }
+}
+
+function desktopReminderTitle(kind: "deadline" | "next_step", daysRemaining: number): string {
+  if (kind === "next_step") {
+    if (daysRemaining === 0) return "Next action due today";
+    if (daysRemaining === -1) return "Next action overdue by 1 day";
+    return `Next action overdue by ${Math.abs(daysRemaining)} days`;
+  }
+  if (daysRemaining === 0) return "Application deadline today";
+  if (daysRemaining === 1) return "Application deadline tomorrow";
+  return `Application deadline in ${daysRemaining} days`;
+}
+
+let desktopReminderDeliveryInFlight: Promise<void> | null = null;
+
+async function showDueDesktopReminders(requestPermissionIfNeeded = false): Promise<boolean> {
+  if (!(await ensureDesktopNotificationPermission(requestPermissionIfNeeded))) return false;
+  if (desktopReminderDeliveryInFlight) {
+    await desktopReminderDeliveryInFlight;
+    return true;
+  }
+  desktopReminderDeliveryInFlight = (async () => {
+    const { items } = await getDueDesktopReminders();
+    for (const reminder of items) {
+      await sendNotification({
+        title: desktopReminderTitle(reminder.kind, reminder.days_remaining),
+        body: reminder.kind === "next_step"
+          ? `${reminder.company} · ${reminder.message}`
+          : `${reminder.company} · ${reminder.role}`
+      });
+      await acknowledgeDesktopReminder(reminder.application_id, reminder.kind);
+    }
+  })();
+  try {
+    await desktopReminderDeliveryInFlight;
+  } finally {
+    desktopReminderDeliveryInFlight = null;
+  }
+  return true;
+}
+
+function today(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function looksLikeMicrosoftClientId(value: string): boolean {
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+const EMPTY_FORM: ApplicationInput = {
+  company: "",
+  role: "",
+  status: "saved",
+  application_date: today(),
+  deadline: null,
+  next_step: null,
+  next_step_date: null,
+  location: null,
+  source_url: null,
+  notes: null
+};
+
+function formatDate(value: string | null): string {
+  if (!value) return "—";
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(
+    new Date(year, month - 1, day)
+  );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function daysUntil(value: string): number {
+  const [year, month, day] = value.split("-").map(Number);
+  const target = new Date(year, month - 1, day);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - start.getTime()) / 86_400_000);
+}
+
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
+  const paths: Record<string, ReactNode> = {
+    plus: <><path d="M12 5v14M5 12h14" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></>,
+    download: <><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" /></>,
+    upload: <><path d="M12 21V9m0 0 4 4m-4-4-4 4M5 3h14" /></>,
+    briefcase: <><rect x="3" y="7" width="18" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" /></>,
+    activity: <><path d="M3 12h4l2.5-7 5 14 2.5-7h4" /></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></>,
+    spark: <><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z" /></>,
+    edit: <><path d="m4 16-1 5 5-1L19 9l-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></>,
+    trash: <><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7" /><path d="M10 11v6M14 11v6" /></>,
+    close: <><path d="m6 6 12 12M18 6 6 18" /></>,
+    arrow: <><path d="M5 12h14m-5-5 5 5-5 5" /></>,
+    link: <><path d="M10 14a4.5 4.5 0 0 0 6.4.1l2.5-2.5a4.5 4.5 0 0 0-6.4-6.4L11 6.7" /><path d="M14 10a4.5 4.5 0 0 0-6.4-.1l-2.5 2.5a4.5 4.5 0 0 0 6.4 6.4l1.5-1.5" /></>
+  };
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function StatusBadge({ status }: { status: ApplicationStatus }) {
+  return <span className={`status-badge status-${status}`}><span className="status-dot" />{STATUS_LABELS[status]}</span>;
+}
+
+function ApplicationModal({
+  application,
+  initialDraft,
+  onClose,
+  onSaved
+}: {
+  application: InternshipApplication | null;
+  initialDraft: ApplicationInput | null;
+  onClose: () => void;
+  onSaved: (message: string) => Promise<void>;
+}) {
+  const [form, setForm] = useState<ApplicationInput>(() => application ? {
+    company: application.company,
+    role: application.role,
+    status: application.status,
+    application_date: application.application_date,
+    deadline: application.deadline,
+    next_step: application.next_step,
+    next_step_date: application.next_step_date,
+    location: application.location,
+    source_url: application.source_url,
+    notes: application.notes
+  } : initialDraft ? { ...initialDraft } : { ...EMPTY_FORM });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  function setField<K extends keyof ApplicationInput>(key: K, value: ApplicationInput[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      if (application) {
+        await updateApplication(application.id, form);
+        await onSaved("Application updated");
+      } else {
+        await createApplication(form);
+        await onSaved("Application added");
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save this application.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="application-form-title">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">{initialDraft ? "Review AI draft" : "Application details"}</p>
+            <h2 id="application-form-title">{application ? "Edit application" : initialDraft ? "Review before adding" : "Add an application"}</h2>
+          </div>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close dialog"><Icon name="close" /></button>
+        </div>
+        {initialDraft && <p className="ai-review-note"><Icon name="spark" size={17} /> AI suggested these values. Check them against the original posting; missing or uncertain fields may be blank.</p>}
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label>Company<input required maxLength={120} value={form.company} onChange={(event) => setField("company", event.target.value)} placeholder="e.g. Stripe" /></label>
+            <label>Role<input required maxLength={120} value={form.role} onChange={(event) => setField("role", event.target.value)} placeholder="e.g. Software Engineer Intern" /></label>
+            <label>Status<select value={form.status} onChange={(event) => setField("status", event.target.value as ApplicationStatus)}>{STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
+            <label>Location<input maxLength={120} value={form.location ?? ""} onChange={(event) => setField("location", event.target.value || null)} placeholder="City, state or Remote" /></label>
+            <label>Application date<input type="date" required value={form.application_date} onChange={(event) => setField("application_date", event.target.value)} /></label>
+            <label>Deadline<input type="date" min={form.application_date} value={form.deadline ?? ""} onChange={(event) => setField("deadline", event.target.value || null)} /></label>
+            <label>Next step<input maxLength={200} value={form.next_step ?? ""} onChange={(event) => { const value = event.target.value; setField("next_step", value || null); if (!value) setField("next_step_date", null); }} placeholder="e.g. Prepare system design examples" /></label>
+            <label>Next step date<input type="date" disabled={!form.next_step} value={form.next_step_date ?? ""} onChange={(event) => setField("next_step_date", event.target.value || null)} /></label>
+            <label className="full-width">Job posting URL<input type="url" maxLength={500} value={form.source_url ?? ""} onChange={(event) => setField("source_url", event.target.value || null)} placeholder="https://company.com/jobs/..." /></label>
+            <label className="full-width">Notes<textarea rows={4} value={form.notes ?? ""} onChange={(event) => setField("notes", event.target.value || null)} placeholder="Referral, recruiter name, interview prep notes…" /></label>
+          </div>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button primary" disabled={saving}>{saving ? "Saving…" : application ? "Save changes" : "Add application"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function AiImportModal({
+  onClose,
+  onDraft
+}: {
+  onClose: () => void;
+  onDraft: (draft: AiJobDraft) => void;
+}) {
+  const [jobText, setJobText] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setParsing(true);
+    setError("");
+    try {
+      onDraft(await parseJobPosting(jobText, sourceUrl));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create an AI draft.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal ai-import-dialog" role="dialog" aria-modal="true" aria-labelledby="ai-import-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">AI-assisted entry</p><h2 id="ai-import-title">Turn a job post into a draft</h2></div>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close AI import"><Icon name="close" /></button>
+        </div>
+        <p className="ai-import-intro">Paste the posting and InternTrack will suggest the fields. Nothing is saved until you review the next form and choose <strong>Add application</strong>.</p>
+        <form onSubmit={handleSubmit}>
+          <label>Job posting URL <span>Optional</span><input type="url" maxLength={500} value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://company.com/jobs/..." /></label>
+          <label>Job description<textarea required minLength={100} maxLength={20_000} rows={12} value={jobText} onChange={(event) => setJobText(event.target.value)} placeholder="Paste the company, role, qualifications, location, and deadline…" /></label>
+          <p className="ai-privacy"><Icon name="spark" size={16} /> The description is sent to the server's configured AI provider for extraction. Review every suggested field before saving.</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <div className="modal-actions">
+            <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="button primary" disabled={parsing}>{parsing ? "Creating draft…" : "Generate draft"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function CsvImportModal({
+  onClose,
+  onImported
+}: {
+  onClose: () => void;
+  onImported: (result: CsvImportResult) => Promise<void>;
+}) {
+  const [csvText, setCsvText] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState<CsvImportPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const closeButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    closeButton.current?.focus();
+    const handleKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", handleKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      document.body.style.overflow = "";
+    };
+  }, [onClose]);
+
+  async function handleFile(file: File | undefined) {
+    setCsvText("");
+    setFileName("");
+    setPreview(null);
+    setError("");
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      setError("CSV files are limited to 2 MB.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const nextPreview = await previewCsvImport(text);
+      setCsvText(text);
+      setFileName(file.name);
+      setPreview(nextPreview);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not preview this CSV file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImport() {
+    if (!csvText || !preview || preview.invalid_rows) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onImported(await importCsv(csvText));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not import this CSV file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal csv-import-dialog" role="dialog" aria-modal="true" aria-labelledby="csv-import-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">Spreadsheet migration</p><h2 id="csv-import-title">Import applications from CSV</h2></div>
+          <button ref={closeButton} className="icon-button" onClick={onClose} aria-label="Close CSV import"><Icon name="close" /></button>
+        </div>
+        <p className="csv-import-intro">Choose a UTF-8 CSV with <strong>company</strong> and <strong>role</strong> columns. Status, dates, next_step, location, source_url, and notes are optional. InternTrack validates every row before saving anything.</p>
+        <label className="csv-file-picker"><Icon name="upload" size={22} /><span><strong>{fileName || "Choose a CSV file"}</strong><small>Up to 2 MB or 5,000 rows</small></span><input type="file" accept="text/csv,.csv" disabled={busy} onChange={(event) => void handleFile(event.target.files?.[0])} /></label>
+        {busy && !preview && <div className="csv-import-loading"><span className="loader" /><p>Checking rows…</p></div>}
+        {preview && <div className="csv-preview">
+          <div className="csv-preview-counts"><span><strong>{preview.importable_rows}</strong> ready</span><span><strong>{preview.duplicate_rows}</strong> duplicates</span><span className={preview.invalid_rows ? "invalid" : ""}><strong>{preview.invalid_rows}</strong> invalid</span></div>
+          {preview.sample.length > 0 && <div className="csv-sample"><h3>Preview</h3>{preview.sample.map((item, index) => <div key={`${item.company}-${item.role}-${index}`}><span><strong>{item.company}</strong><small>{item.role}</small></span><StatusBadge status={item.status} /></div>)}</div>}
+          {preview.errors.length > 0 && <div className="csv-errors"><h3>Fix before importing</h3>{preview.errors.map((item, index) => <p key={`${item.row}-${index}`}><strong>Row {item.row}{item.field ? ` · ${item.field}` : ""}</strong>{item.message}</p>)}{preview.errors_truncated && <small>More invalid rows are not shown.</small>}</div>}
+          {!preview.invalid_rows && !preview.importable_rows && <p className="csv-no-new">No new applications to import. Every valid row is already in InternTrack.</p>}
+        </div>}
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="button" className="button primary" disabled={busy || !preview || Boolean(preview.invalid_rows) || !preview.importable_rows} onClick={() => void handleImport()}>{busy ? "Importing…" : preview ? `Import ${preview.importable_rows} applications` : "Import applications"}</button></div>
+      </section>
+    </div>
+  );
+}
+
+function AccountDialog({
+  user,
+  runtime,
+  desktopMode,
+  onAiAvailabilityChanged,
+  onDataRestored,
+  onClose,
+  onSignedOut,
+  onDeleted
+}: {
+  user: User;
+  runtime: RuntimeInfo;
+  desktopMode: boolean;
+  onAiAvailabilityChanged: (available: boolean) => void;
+  onDataRestored: () => Promise<void>;
+  onClose: () => void;
+  onSignedOut: () => Promise<void>;
+  onDeleted: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reminders, setReminders] = useState<ReminderSettings | null>(null);
+  const [reminderBusy, setReminderBusy] = useState(true);
+  const [reminderSaved, setReminderSaved] = useState(false);
+  const [startAtLogin, setStartAtLogin] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(desktopMode);
+  const [autostartSaved, setAutostartSaved] = useState(false);
+  const [aiSettings, setAiSettings] = useState<DesktopAiSettings | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [aiSettingsBusy, setAiSettingsBusy] = useState(false);
+  const [aiSettingsSaved, setAiSettingsSaved] = useState(false);
+  const [googleConnection, setGoogleConnection] = useState<DesktopEmailConnection | null>(null);
+  const [googleClientId, setGoogleClientId] = useState("");
+  const [gmailBusy, setGmailBusy] = useState(false);
+  const [gmailConnecting, setGmailConnecting] = useState(false);
+  const [gmailMessage, setGmailMessage] = useState("");
+  const [gmailAuthorizationUrl, setGmailAuthorizationUrl] = useState("");
+  const [gmailSuggestions, setGmailSuggestions] = useState<EmailStatusSuggestion[]>([]);
+  const [microsoftConnection, setMicrosoftConnection] = useState<DesktopEmailConnection | null>(null);
+  const [microsoftClientId, setMicrosoftClientId] = useState("");
+  const [outlookBusy, setOutlookBusy] = useState(false);
+  const [outlookConnecting, setOutlookConnecting] = useState(false);
+  const [outlookMessage, setOutlookMessage] = useState("");
+  const [outlookAuthorizationUrl, setOutlookAuthorizationUrl] = useState("");
+  const [outlookSuggestions, setOutlookSuggestions] = useState<EmailStatusSuggestion[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMessage, setBackupMessage] = useState("");
+  const [backupPayload, setBackupPayload] = useState<PortableBackup | null>(null);
+  const [backupPreview, setBackupPreview] = useState<PortableBackupPreview | null>(null);
+  const [backupMode, setBackupMode] = useState<"merge" | "replace">("merge");
+  const [recovery, setRecovery] = useState<DesktopRecoveryState | null>(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [recoveryMessage, setRecoveryMessage] = useState("");
+
+  useEffect(() => {
+    if (desktopMode) {
+      let active = true;
+      Promise.all([
+        getDesktopAiSettings(),
+        getDesktopGoogleConnection(),
+        getDesktopMicrosoftConnection(),
+        getReminderSettings(),
+        getDesktopRecoveryState(),
+        isAutostartEnabled().catch(() => false)
+      ])
+        .then(([nextAiSettings, nextGoogleConnection, nextMicrosoftConnection, nextReminders, nextRecovery, nextAutostart]) => {
+          if (!active) return;
+          setAiSettings(nextAiSettings);
+          setGoogleConnection(nextGoogleConnection);
+          setMicrosoftConnection(nextMicrosoftConnection);
+          setRecovery(nextRecovery);
+          setStartAtLogin(nextAutostart);
+          setReminders({
+            ...nextReminders,
+            reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+          });
+        })
+        .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load desktop settings."))
+        .finally(() => {
+          if (!active) return;
+          setReminderBusy(false);
+          setAutostartBusy(false);
+        });
+      return () => { active = false; };
+    }
+    let active = true;
+    getReminderSettings()
+      .then((settings) => active && setReminders({
+        ...settings,
+        reminder_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+      }))
+      .catch((caught) => active && setError(caught instanceof Error ? caught.message : "Could not load reminder settings."))
+      .finally(() => active && setReminderBusy(false));
+    return () => { active = false; };
+  }, [desktopMode]);
+
+  useEffect(() => {
+    if (!gmailConnecting) return;
+    let active = true;
+    let attempts = 0;
+    async function checkConnection() {
+      attempts += 1;
+      try {
+        const nextConnection = await getDesktopGoogleConnection();
+        if (!active) return;
+        setGoogleConnection(nextConnection);
+        if (nextConnection.connected) {
+          setGmailConnecting(false);
+          setGmailAuthorizationUrl("");
+          setGmailMessage(`Connected ${nextConnection.account_email ?? "Gmail"}.`);
+        } else if (attempts >= 48) {
+          setGmailConnecting(false);
+          setGmailMessage("Connection timed out. Start the Gmail connection again.");
+        }
+      } catch {
+        if (active && attempts >= 48) setGmailConnecting(false);
+      }
+    }
+    void checkConnection();
+    const timer = window.setInterval(() => void checkConnection(), 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [gmailConnecting]);
+
+  useEffect(() => {
+    if (!outlookConnecting) return;
+    let active = true;
+    let attempts = 0;
+    async function checkConnection() {
+      attempts += 1;
+      try {
+        const nextConnection = await getDesktopMicrosoftConnection();
+        if (!active) return;
+        setMicrosoftConnection(nextConnection);
+        if (nextConnection.connected) {
+          setOutlookConnecting(false);
+          setOutlookAuthorizationUrl("");
+          setOutlookMessage(`Connected ${nextConnection.account_email ?? "Microsoft Outlook"}.`);
+        } else if (attempts >= 48) {
+          setOutlookConnecting(false);
+          setOutlookMessage("Connection timed out. Start the Microsoft connection again.");
+        }
+      } catch {
+        if (active && attempts >= 48) setOutlookConnecting(false);
+      }
+    }
+    void checkConnection();
+    const timer = window.setInterval(() => void checkConnection(), 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [outlookConnecting]);
+
+  async function handleReminderSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!reminders) return;
+    setReminderBusy(true);
+    setReminderSaved(false);
+    setError("");
+    try {
+      if (
+        desktopMode
+        && reminders.deadline_reminders_enabled
+        && !(await ensureDesktopNotificationPermission(true))
+      ) {
+        throw new Error("Windows notification permission is required. Open the installed desktop app and allow notifications.");
+      }
+      const nextReminders = await updateReminderSettings(reminders);
+      setReminders(nextReminders);
+      setReminderSaved(true);
+      if (desktopMode && nextReminders.deadline_reminders_enabled) {
+        await showDueDesktopReminders();
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save reminder settings.");
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
+  async function handleAutostartChange(enabled: boolean) {
+    setAutostartBusy(true);
+    setAutostartSaved(false);
+    setError("");
+    try {
+      if (enabled) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+      const nextAutostart = await isAutostartEnabled();
+      if (nextAutostart !== enabled) {
+        throw new Error("Windows did not save the startup preference.");
+      }
+      setStartAtLogin(nextAutostart);
+      setAutostartSaved(true);
+    } catch (caught) {
+      setStartAtLogin(await isAutostartEnabled().catch(() => !enabled));
+      setError(caught instanceof Error ? caught.message : "Could not update the Windows startup preference.");
+    } finally {
+      setAutostartBusy(false);
+    }
+  }
+
+  async function handleAiSettingsSubmit(event: FormEvent) {
+    event.preventDefault();
+    setAiSettingsBusy(true);
+    setAiSettingsSaved(false);
+    setError("");
+    try {
+      const nextSettings = await updateDesktopAiSettings(apiKey);
+      setAiSettings(nextSettings);
+      setApiKey("");
+      setAiSettingsSaved(true);
+      onAiAvailabilityChanged(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save the API key.");
+    } finally {
+      setAiSettingsBusy(false);
+    }
+  }
+
+  async function handleRemoveAiSettings() {
+    setAiSettingsBusy(true);
+    setAiSettingsSaved(false);
+    setError("");
+    try {
+      await deleteDesktopAiSettings();
+      setAiSettings((current) => ({ configured: false, model: current?.model ?? "" }));
+      setApiKey("");
+      onAiAvailabilityChanged(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove the API key.");
+    } finally {
+      setAiSettingsBusy(false);
+    }
+  }
+
+  async function handleGoogleConnect() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      const result = await connectDesktopGoogle(googleClientId.trim());
+      setGmailAuthorizationUrl(result.authorization_url);
+      setGmailConnecting(true);
+      setGmailMessage(result.browser_opened ? "Finish granting access in your browser." : "Open the authorization link to continue.");
+      if (!result.browser_opened) window.open(result.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start Gmail authorization.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleGoogleDisconnect() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      await disconnectDesktopGoogle();
+      setGoogleConnection(await getDesktopGoogleConnection());
+      setGmailSuggestions([]);
+      setGmailMessage("Gmail disconnected and local tokens removed.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not disconnect Gmail.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleGoogleSync() {
+    setGmailBusy(true);
+    setGmailMessage("");
+    setError("");
+    try {
+      const result = await syncDesktopGoogle();
+      setGmailSuggestions(result.suggestions);
+      setGmailMessage(`${result.scanned_messages} recent inbox messages checked · ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sync Gmail.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleApplyGmailSuggestion(suggestion: EmailStatusSuggestion) {
+    setGmailBusy(true);
+    setError("");
+    try {
+      await updateApplication(suggestion.application_id, { status: suggestion.suggested_status });
+      setGmailSuggestions((current) => current.filter((item) => item.message_id !== suggestion.message_id));
+      setGmailMessage(`${suggestion.company} updated to ${STATUS_LABELS[suggestion.suggested_status]}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not apply this suggestion.");
+    } finally {
+      setGmailBusy(false);
+    }
+  }
+
+  async function handleMicrosoftConnect() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      const result = await connectDesktopMicrosoft(microsoftClientId.trim());
+      setOutlookAuthorizationUrl(result.authorization_url);
+      setOutlookConnecting(true);
+      setOutlookMessage(result.browser_opened ? "Finish granting access in your browser." : "Open the authorization link to continue.");
+      if (!result.browser_opened) window.open(result.authorization_url, "_blank", "noopener,noreferrer");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not start Microsoft authorization.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleMicrosoftDisconnect() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      await disconnectDesktopMicrosoft();
+      setMicrosoftConnection(await getDesktopMicrosoftConnection());
+      setOutlookSuggestions([]);
+      setOutlookMessage("Microsoft Outlook disconnected and local tokens removed.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not disconnect Microsoft Outlook.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleMicrosoftSync() {
+    setOutlookBusy(true);
+    setOutlookMessage("");
+    setError("");
+    try {
+      const result = await syncDesktopMicrosoft();
+      setOutlookSuggestions(result.suggestions);
+      setOutlookMessage(`${result.scanned_messages} recent inbox messages checked · ${result.suggestions.length} suggestion${result.suggestions.length === 1 ? "" : "s"}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sync Microsoft Outlook.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleApplyOutlookSuggestion(suggestion: EmailStatusSuggestion) {
+    setOutlookBusy(true);
+    setError("");
+    try {
+      await updateApplication(suggestion.application_id, { status: suggestion.suggested_status });
+      setOutlookSuggestions((current) => current.filter((item) => item.message_id !== suggestion.message_id));
+      setOutlookMessage(`${suggestion.company} updated to ${STATUS_LABELS[suggestion.suggested_status]}.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not apply this suggestion.");
+    } finally {
+      setOutlookBusy(false);
+    }
+  }
+
+  async function handleBackupDownload() {
+    setBackupBusy(true);
+    setBackupMessage("");
+    setError("");
+    try {
+      await downloadPortableBackup();
+      setBackupMessage("Backup downloaded. Store it somewhere you can find later.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create a backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleBackupFile(file: File | undefined) {
+    setBackupPayload(null);
+    setBackupPreview(null);
+    setBackupMessage("");
+    setError("");
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError("This backup is larger than the 10 MB import limit.");
+      return;
+    }
+    setBackupBusy(true);
+    try {
+      const parsed = JSON.parse(await file.text()) as PortableBackup;
+      const preview = await previewPortableBackup(parsed);
+      setBackupPayload(parsed);
+      setBackupPreview(preview);
+      setBackupMessage("Backup validated. Choose how to restore it.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "This is not a valid InternTrack backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handleBackupRestore() {
+    if (!backupPayload || !backupPreview) return;
+    if (
+      backupMode === "replace"
+      && !window.confirm("Replace every application currently stored on this computer with this backup?")
+    ) return;
+    setBackupBusy(true);
+    setBackupMessage("");
+    setError("");
+    try {
+      const result = await restorePortableBackup(backupPayload, backupMode);
+      setReminders(await getReminderSettings());
+      await onDataRestored();
+      setBackupPayload(null);
+      setBackupPreview(null);
+      setBackupMessage(
+        result.mode === "replace"
+          ? `Restore complete: ${result.imported_applications} applications loaded and ${result.removed_applications} previous applications removed.`
+          : `Restore complete: ${result.imported_applications} applications added and ${result.skipped_duplicates} duplicates skipped.`
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not restore this backup.");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function handlePrepareRecovery() {
+    if (!selectedSnapshot) return;
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      await prepareDesktopRecovery(
+        selectedSnapshot,
+        recoveryPassword,
+        recoveryConfirmation
+      );
+      setRecovery(await getDesktopRecoveryState());
+      setRecoveryPassword("");
+      setRecoveryConfirmation("");
+      setRecoveryMessage(
+        "Restore is ready. Choose Quit from the InternTrack system-tray menu, then reopen the app to apply it."
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not prepare this recovery point.");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function handleCancelRecovery() {
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      setRecovery(await cancelDesktopRecovery());
+      setRecoveryMessage("Pending restore cancelled. Your current workspace will stay active.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not cancel the pending restore.");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  }
+
+  async function handleRestartForRecovery() {
+    setRecoveryBusy(true);
+    setRecoveryMessage("");
+    setError("");
+    try {
+      await invoke("restart_for_pending_restore");
+      setRecoveryMessage("Restarting InternTrack and applying the selected recovery point…");
+    } catch {
+      setRecoveryBusy(false);
+      setRecoveryMessage(
+        "Automatic restart is unavailable here. Choose Quit from the InternTrack system-tray menu, then reopen the installed app."
+      );
+    }
+  }
+
+  async function handleDelete(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await deleteAccount(password);
+      onDeleted();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not delete this account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title">
+        <div className="modal-header">
+          <div><p className="eyebrow">Your account</p><h2 id="account-title">Account settings</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label="Close account settings"><Icon name="close" /></button>
+        </div>
+        <div className="account-summary"><span>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong><small>{desktopMode ? "Local account · Data stored on this computer." : `${user.email_verified ? "Email verified" : "Email verification pending"} · Your application data is private.`}</small></div></div>
+        {!confirmingDelete && desktopMode && <section className="reminder-settings">
+          <div><h3>Local-first workspace</h3><p>Applications and reminder history are stored in a private SQLite database on this computer. Closing the window keeps InternTrack in the system tray so local reminders can continue; choose Quit from the tray menu to stop it.</p></div>
+          <label className="toggle-row">
+            <span><strong>Start with Windows</strong><small>Launch InternTrack hidden in the system tray when you sign in.</small></span>
+            <input type="checkbox" checked={startAtLogin} disabled={autostartBusy} onChange={(event) => void handleAutostartChange(event.target.checked)} />
+          </label>
+          <div className="reminder-save"><span aria-live="polite">{autostartSaved ? "Saved" : ""}</span></div>
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings recovery-settings">
+          <div><h3>Automatic recovery</h3><p>Return the entire local workspace to a snapshot made before an upgrade or earlier restore. The current workspace is backed up again immediately before replacement.</p></div>
+          {!recovery ? <p className="settings-loading">Checking recovery points…</p> : recovery.pending_restore ? <div className="recovery-pending" role="status">
+            <strong>Restore ready for next launch</strong>
+            <p>Restart InternTrack to apply it. The desktop shell checks that a staged restore exists before restarting; closing only the window keeps the current process running.</p>
+            <div className="recovery-pending-actions"><button className="button secondary compact" type="button" disabled={recoveryBusy} onClick={() => void handleCancelRecovery()}>Cancel pending restore</button><button className="button primary compact" type="button" disabled={recoveryBusy} onClick={() => void handleRestartForRecovery()}>{recoveryBusy ? "Restarting…" : "Restart and restore now"}</button></div>
+          </div> : recovery.snapshots.length === 0 ? <p className="recovery-empty">No automatic recovery points yet. One will appear before a future database upgrade.</p> : <>
+            <div className="recovery-list">{recovery.snapshots.map((snapshot) => <label className={!snapshot.valid ? "invalid" : ""} key={snapshot.snapshot_id}>
+              <input type="radio" name="recovery-snapshot" value={snapshot.snapshot_id} checked={selectedSnapshot === snapshot.snapshot_id} disabled={!snapshot.valid || recoveryBusy} onChange={() => setSelectedSnapshot(snapshot.snapshot_id)} />
+              <span><strong>{snapshot.kind === "upgrade" ? "Before app upgrade" : "Before previous restore"}</strong><small>{new Date(snapshot.created_at).toLocaleString()} · {formatFileSize(snapshot.size_bytes)}{snapshot.valid ? "" : " · Damaged or unreadable"}</small></span>
+            </label>)}</div>
+            {selectedSnapshot && <div className="recovery-confirmation">
+              <p>This replaces the complete local database on the next launch, including accounts and reminder history.</p>
+              <label>Current password<input type="password" autoComplete="current-password" maxLength={128} value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} /></label>
+              <label>Type RESTORE to confirm<input type="text" autoComplete="off" maxLength={7} value={recoveryConfirmation} onChange={(event) => setRecoveryConfirmation(event.target.value)} /></label>
+              <button className="button destructive compact" type="button" disabled={recoveryBusy || !recoveryPassword || recoveryConfirmation !== "RESTORE"} onClick={() => void handlePrepareRecovery()}>{recoveryBusy ? "Preparing…" : "Restore on next launch"}</button>
+            </div>}
+          </>}
+          {recoveryMessage && <p className="gmail-message" role="status">{recoveryMessage}</p>}
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings backup-settings">
+          <div><h3>Portable backup</h3><p>Move applications and reminder preferences to another computer. Passwords, sessions, AI keys, and email connections are never included.</p></div>
+          <div className="backup-actions"><button className="button secondary compact" type="button" disabled={backupBusy} onClick={() => void handleBackupDownload()}>{backupBusy ? "Working…" : "Download backup"}</button><label className="button secondary compact backup-file">Choose backup file<input type="file" accept="application/json,.json" disabled={backupBusy} onChange={(event) => void handleBackupFile(event.target.files?.[0])} /></label></div>
+          {backupPreview && <div className="backup-preview">
+            <p><strong>{backupPreview.backup_applications}</strong> applications in backup · <strong>{backupPreview.current_applications}</strong> currently stored</p>
+            <label><input type="radio" name="backup-mode" value="merge" checked={backupMode === "merge"} onChange={() => setBackupMode("merge")} /><span><strong>Merge safely</strong><small>Add {backupPreview.merge_import_count} new applications and skip {backupPreview.duplicate_applications} duplicates.</small></span></label>
+            <label><input type="radio" name="backup-mode" value="replace" checked={backupMode === "replace"} onChange={() => setBackupMode("replace")} /><span><strong>Replace current data</strong><small>Remove the current workspace, then load this backup.</small></span></label>
+            <div className="gmail-actions"><button className={`button compact ${backupMode === "replace" ? "destructive" : "primary"}`} type="button" disabled={backupBusy} onClick={() => void handleBackupRestore()}>{backupBusy ? "Restoring…" : "Restore backup"}</button></div>
+          </div>}
+          {backupMessage && <p className="gmail-message" role="status">{backupMessage}</p>}
+        </section>}
+        {!confirmingDelete && desktopMode && <form className="reminder-settings ai-settings" onSubmit={handleAiSettingsSubmit}>
+          <div className="ai-settings-heading"><div><h3>AI import</h3><p>Use your own OpenAI API key to turn pasted job descriptions into application drafts.</p></div>{aiSettings && <span className={aiSettings.configured ? "configured" : ""}>{aiSettings.configured ? "Configured" : "Not configured"}</span>}</div>
+          {!aiSettings ? <p className="settings-loading">Loading AI settings…</p> : <>
+            <label>OpenAI API key<input type="password" autoComplete="off" minLength={20} maxLength={500} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setAiSettingsSaved(false); }} placeholder={aiSettings.configured ? "Enter a new key to replace the saved key" : "Paste your API key"} /><small>The key is encrypted for your Windows account and is never shown again. Model: {aiSettings.model}</small></label>
+            <div className="reminder-save"><span aria-live="polite">{aiSettingsSaved ? "Saved" : ""}</span>{aiSettings.configured && <button className="danger-link" type="button" disabled={aiSettingsBusy} onClick={() => void handleRemoveAiSettings()}>Remove key</button>}<button className="button secondary compact" type="submit" disabled={aiSettingsBusy || apiKey.trim().length < 20}>{aiSettingsBusy ? "Saving…" : aiSettings.configured ? "Replace key" : "Enable AI import"}</button></div>
+          </>}
+        </form>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings gmail-settings">
+          <div className="ai-settings-heading"><div><h3>Gmail status sync</h3><p>Review recent inbox metadata for application updates. Email bodies never leave Gmail.</p></div>{googleConnection && <span className={googleConnection.connected ? "configured" : ""}>{googleConnection.connected ? "Connected" : "Not connected"}</span>}</div>
+          {!googleConnection ? <p className="settings-loading">Loading Gmail settings…</p> : googleConnection.connected ? <>
+            <p className="gmail-account">Connected account: <strong>{googleConnection.account_email}</strong></p>
+            <div className="gmail-actions"><button className="danger-link" type="button" disabled={gmailBusy} onClick={() => void handleGoogleDisconnect()}>Disconnect</button><button className="button secondary compact" type="button" disabled={gmailBusy} onClick={() => void handleGoogleSync()}>{gmailBusy ? "Working…" : "Check recent mail"}</button></div>
+          </> : <>
+            {!googleConnection.configured && <label>Google Desktop OAuth client ID<input type="text" autoComplete="off" maxLength={300} value={googleClientId} onChange={(event) => setGoogleClientId(event.target.value)} placeholder="123…apps.googleusercontent.com" /><small>Create a Desktop app client in Google Cloud for beta testing. A verified client ID will be embedded before public release.</small></label>}
+            <p className="gmail-privacy">InternTrack requests Gmail metadata-only access and reads sender, subject, and date—not message bodies. Suggestions are never applied without your approval.</p>
+            <div className="gmail-actions"><button className="button secondary compact" type="button" disabled={gmailBusy || gmailConnecting || (!googleConnection.configured && !googleClientId.trim().endsWith(".apps.googleusercontent.com"))} onClick={() => void handleGoogleConnect()}>{gmailConnecting ? "Waiting for Google…" : gmailBusy ? "Opening…" : "Connect Gmail"}</button></div>
+            {gmailAuthorizationUrl && <a className="gmail-auth-link" href={gmailAuthorizationUrl} target="_blank" rel="noopener noreferrer">Open Google authorization</a>}
+          </>}
+          {gmailMessage && <p className="gmail-message" role="status">{gmailMessage}</p>}
+          {gmailSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{gmailSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={gmailBusy} onClick={() => void handleApplyGmailSuggestion(suggestion)}>Apply update</button></article>)}</div>}
+        </section>}
+        {!confirmingDelete && desktopMode && <section className="reminder-settings gmail-settings">
+          <div className="ai-settings-heading"><div><h3>Microsoft Outlook status sync</h3><p>Review basic inbox metadata from Outlook.com or Microsoft 365. Email bodies and attachments are not requested.</p></div>{microsoftConnection && <span className={microsoftConnection.connected ? "configured" : ""}>{microsoftConnection.connected ? "Connected" : "Not connected"}</span>}</div>
+          {!microsoftConnection ? <p className="settings-loading">Loading Microsoft settings…</p> : microsoftConnection.connected ? <>
+            <p className="gmail-account">Connected account: <strong>{microsoftConnection.account_email}</strong></p>
+            <div className="gmail-actions"><button className="danger-link" type="button" disabled={outlookBusy} onClick={() => void handleMicrosoftDisconnect()}>Disconnect</button><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleMicrosoftSync()}>{outlookBusy ? "Working…" : "Check recent mail"}</button></div>
+          </> : <>
+            {!microsoftConnection.configured && <label>Microsoft Application (client) ID<input type="text" autoComplete="off" maxLength={36} value={microsoftClientId} onChange={(event) => setMicrosoftClientId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /><small>Create a public desktop client in Microsoft Entra for beta testing. A registered client ID can be embedded in release builds.</small></label>}
+            <p className="gmail-privacy">InternTrack requests delegated Mail.ReadBasic access and selects only sender, subject, and received date. Every status change still requires your approval.</p>
+            <div className="gmail-actions"><button className="button secondary compact" type="button" disabled={outlookBusy || outlookConnecting || (!microsoftConnection.configured && !looksLikeMicrosoftClientId(microsoftClientId))} onClick={() => void handleMicrosoftConnect()}>{outlookConnecting ? "Waiting for Microsoft…" : outlookBusy ? "Opening…" : "Connect Microsoft Outlook"}</button></div>
+            {outlookAuthorizationUrl && <a className="gmail-auth-link" href={outlookAuthorizationUrl} target="_blank" rel="noopener noreferrer">Open Microsoft authorization</a>}
+          </>}
+          {outlookMessage && <p className="gmail-message" role="status">{outlookMessage}</p>}
+          {outlookSuggestions.length > 0 && <div className="gmail-suggestions"><h4>Review suggestions</h4>{outlookSuggestions.map((suggestion) => <article key={suggestion.message_id}><div><strong>{suggestion.company} · {suggestion.role}</strong><span>{STATUS_LABELS[suggestion.current_status]} → {STATUS_LABELS[suggestion.suggested_status]}</span></div><p>{suggestion.subject}</p><small>{suggestion.reason}</small><button className="button secondary compact" type="button" disabled={outlookBusy} onClick={() => void handleApplyOutlookSuggestion(suggestion)}>Apply update</button></article>)}</div>}
+        </section>}
+        {!confirmingDelete && <form className="reminder-settings" onSubmit={handleReminderSubmit}>
+          <div><h3>{desktopMode ? "Local reminders" : "Deadline reminders"}</h3><p>{desktopMode ? "Receive Windows notifications for upcoming application deadlines and scheduled next actions. InternTrack checks while the app is running." : "Receive one email when an active application enters your reminder window."}</p></div>
+          {reminderBusy && !reminders ? <p className="settings-loading">Loading reminder settings…</p> : reminders && <>
+            <label className="toggle-row">
+              <span><strong>{desktopMode ? "Windows notifications" : "Email reminders"}</strong><small>{desktopMode || user.email_verified ? "You can turn these off at any time." : "Verify your email before enabling reminders."}</small></span>
+              <input type="checkbox" checked={reminders.deadline_reminders_enabled} disabled={!desktopMode && !user.email_verified} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminders_enabled: event.target.checked }); }} />
+            </label>
+            <label className="reminder-days">Remind me before the deadline<select value={reminders.deadline_reminder_days} disabled={!reminders.deadline_reminders_enabled} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminder_days: Number(event.target.value) }); }}><option value={1}>1 day before</option><option value={3}>3 days before</option><option value={7}>7 days before</option><option value={14}>14 days before</option></select></label>
+            <p className="reminder-timezone">Dates use your browser time zone: <strong>{reminders.reminder_timezone}</strong></p>
+            <div className="reminder-save"><span aria-live="polite">{reminderSaved ? "Saved" : ""}</span><button className="button secondary compact" type="submit" disabled={reminderBusy}>{reminderBusy ? "Saving…" : "Save reminders"}</button></div>
+          </>}
+        </form>}
+        {!confirmingDelete && <section className="reminder-settings about-settings">
+          <div><h3>About &amp; support</h3><p>InternTrack {runtime.app_version === "unknown" ? "version unavailable" : runtime.app_version} · Local-first internship application tracking.</p></div>
+          <div className="about-links" aria-label="InternTrack links">
+            <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site" target="_blank" rel="noopener noreferrer">Product site</a>
+            <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site/privacy.html" target="_blank" rel="noopener noreferrer">Privacy</a>
+            <a href="https://interntrack-student-beta.alanyan-study.chatgpt.site/terms.html" target="_blank" rel="noopener noreferrer">Terms</a>
+            <a href="https://github.com/jhyan-beep/interntrack/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report an issue</a>
+            <button type="button" onClick={() => downloadSupportReport(runtime)}>Download diagnostics</button>
+          </div>
+          <p className="diagnostics-note">The diagnostics file contains version and device compatibility details only—never applications, account data, email, or API keys.</p>
+        </section>}
+        {error && !confirmingDelete && <p className="form-error" role="alert">{error}</p>}
+        {!confirmingDelete ? <div className="account-actions"><button className="button secondary" onClick={() => void onSignedOut()}>Sign out</button><button className="danger-link" onClick={() => setConfirmingDelete(true)}>Delete account</button></div> : <form className="delete-account-form" onSubmit={handleDelete}><h3>Delete your account?</h3><p>This permanently removes your account and every application. Enter your password to confirm.</p><label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="form-error" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setConfirmingDelete(false); setPassword(""); setError(""); }}>Keep account</button><button type="submit" className="button destructive" disabled={busy}>{busy ? "Deleting…" : "Delete permanently"}</button></div></form>}
+      </section>
+    </div>
+  );
+}
+
+function BetaLaunchpad({
+  progress,
+  onAdd,
+  onAiImport,
+  onEnableReminders,
+  onVerify,
+  onFeedback
+}: {
+  progress: BetaProgress;
+  onAdd: () => void;
+  onAiImport: () => void;
+  onEnableReminders: () => void;
+  onVerify: () => void;
+  onFeedback: () => void;
+}) {
+  const steps = [
+    {
+      complete: progress.application_count >= 3,
+      title: "Track three applications",
+      detail: `${Math.min(progress.application_count, 3)} of 3 added`,
+      action: "Add one",
+      onAction: onAdd
+    },
+    {
+      complete: progress.email_verified,
+      title: "Verify your email",
+      detail: "Unlock recovery, AI import, and reminders",
+      action: "Send email",
+      onAction: onVerify
+    },
+    {
+      complete: progress.ai_import_used,
+      title: "Try AI import",
+      detail: "Review a structured draft before saving",
+      action: "Try it",
+      onAction: onAiImport
+    },
+    {
+      complete: progress.reminders_enabled,
+      title: "Enable a deadline reminder",
+      detail: "Choose the timing in Account settings",
+      action: "Open settings",
+      onAction: onEnableReminders
+    }
+  ];
+  const completed = steps.filter((step) => step.complete).length;
+
+  return (
+    <section className="beta-launchpad" aria-labelledby="beta-launchpad-title">
+      <div className="beta-launchpad-copy">
+        <span className="beta-label">Private beta</span>
+        <h2 id="beta-launchpad-title">Set up your search workspace</h2>
+        <p>Complete the essentials, then tell us what would make InternTrack worth returning to.</p>
+        <div className="beta-progress" aria-label={`${completed} of ${steps.length} setup steps complete`}><span style={{ width: `${(completed / steps.length) * 100}%` }} /></div>
+        <small>{completed} of {steps.length} complete · Only milestone events are measured—never job text or browsing history.</small>
+        <button className="button secondary compact" onClick={onFeedback}>{progress.feedback_submitted ? "Update feedback" : "Share beta feedback"}</button>
+      </div>
+      <div className="beta-checklist">
+        {steps.map((step) => <div className={`beta-step ${step.complete ? "complete" : ""}`} key={step.title}><span aria-hidden="true">{step.complete ? "✓" : ""}</span><div><strong>{step.title}</strong><small>{step.detail}</small></div>{!step.complete && <button onClick={step.onAction}>{step.action}</button>}</div>)}
+      </div>
+    </section>
+  );
+}
+
+function BetaFeedbackDialog({
+  onClose,
+  onSubmitted
+}: {
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!rating) return;
+    setBusy(true);
+    setError("");
+    try {
+      await submitBetaFeedback(rating, comment.trim());
+      onSubmitted();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save your feedback.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal beta-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="beta-feedback-title">
+        <div className="modal-header"><div><p className="eyebrow">Private beta</p><h2 id="beta-feedback-title">How useful is InternTrack?</h2></div><button className="icon-button" onClick={onClose} aria-label="Close feedback"><Icon name="close" /></button></div>
+        <form onSubmit={handleSubmit}>
+          <fieldset><legend>Choose a rating</legend><div className="rating-buttons">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} className={rating >= value ? "selected" : ""} aria-label={`${value} out of 5`} aria-pressed={rating === value} onClick={() => setRating(value)}>★</button>)}</div></fieldset>
+          <label>What should we improve first?<textarea rows={5} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Tell us what slowed you down or what you still manage elsewhere." /><small>{comment.length}/1000</small></label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <p className="feedback-privacy">Your latest response replaces your previous one and is deleted with your account.</p>
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button type="submit" className="button primary" disabled={!rating || busy}>{busy ? "Saving…" : "Send feedback"}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeInfo>({ app_version: "unknown", mode: "web", ai_available: false, email_features_available: true });
+  const [authLoading, setAuthLoading] = useState(true);
+  const [applications, setApplications] = useState<InternshipApplication[]>([]);
+  const [stats, setStats] = useState<ApplicationStats>(EMPTY_STATS);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  const [sortBy, setSortBy] = useState<SortBy>("created_at");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [editing, setEditing] = useState<InternshipApplication | null>(null);
+  const [initialDraft, setInitialDraft] = useState<ApplicationInput | null>(null);
+  const [toast, setToast] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ total: 0, pages: 0 });
+  const [betaProgress, setBetaProgress] = useState<BetaProgress | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const desktopMode = runtime.mode === "desktop";
+
+  useEffect(() => {
+    async function initializeAuth() {
+      try {
+        setRuntime(await getRuntimeInfo());
+      } catch {
+        // Keep the web defaults when talking to an older or unavailable API.
+      }
+      const params = new URLSearchParams(window.location.search);
+      const verificationToken = params.get("verify_token");
+      const resetToken = params.get("reset_token");
+      if (verificationToken) {
+        try {
+          await verifyEmail(verificationToken);
+          setAuthNotice("Email verified. You can continue to your account.");
+          window.history.replaceState({}, "", window.location.pathname);
+        } catch (caught) {
+          setAuthNotice(caught instanceof Error ? caught.message : "Could not verify this email link.");
+        }
+      }
+      if (!resetToken) {
+        try {
+          setUser(await getCurrentUser());
+        } catch (caught) {
+          if (!(caught instanceof ApiError && caught.status === 401)) {
+            setError("Could not check your session. Please refresh the page.");
+          }
+        }
+      }
+      setAuthLoading(false);
+    }
+    void initializeAuth();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, statusFilter, sortBy, sortOrder]);
+
+  const loadApplications = useCallback(async () => {
+    if (!user) return;
+    try {
+      setError("");
+      const result = await getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page });
+      setApplications(result.items);
+      setPagination({ total: result.total, pages: result.pages });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) setUser(null);
+      setError(caught instanceof Error ? caught.message : "Could not load applications.");
+    }
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user]);
+
+  const loadDashboard = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const [nextApplications, nextStats, nextBetaProgress] = await Promise.all([
+        getApplications({ company: debouncedSearch, status: statusFilter, sortBy, sortOrder, page }),
+        getStats(),
+        desktopMode ? Promise.resolve(null) : getBetaProgress()
+      ]);
+      setApplications(nextApplications.items);
+      setPagination({ total: nextApplications.total, pages: nextApplications.pages });
+      setStats(nextStats);
+      setBetaProgress(nextBetaProgress);
+      setError("");
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) setUser(null);
+      setError(caught instanceof Error ? caught.message : "Could not load your dashboard.");
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch, statusFilter, sortBy, sortOrder, page, user, desktopMode]);
+
+  useEffect(() => { if (user) void loadApplications(); }, [loadApplications, user]);
+  useEffect(() => { if (user) void loadDashboard(); }, [user]);
+  useEffect(() => { if (user && !desktopMode) void recordBetaSession().catch(() => undefined); }, [user?.id, desktopMode]);
+
+  useEffect(() => {
+    if (!user || !desktopMode) return;
+    let active = true;
+    let checking = false;
+    async function checkReminders() {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        await showDueDesktopReminders();
+      } catch {
+        // A later interval or app launch can retry without interrupting the dashboard.
+      } finally {
+        checking = false;
+      }
+    }
+    function checkWhenVisible() {
+      if (document.visibilityState === "visible") void checkReminders();
+    }
+    void checkReminders();
+    const timer = window.setInterval(() => void checkReminders(), 30 * 60 * 1000);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", checkWhenVisible);
+    };
+  }, [user?.id, desktopMode]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 2800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const interviewCount = stats.by_status.interview ?? 0;
+  const offerCount = stats.by_status.offer ?? 0;
+  const statusMax = Math.max(1, ...STATUSES.map((status) => stats.by_status[status] ?? 0));
+  const hasFilters = Boolean(search || statusFilter !== "all");
+
+  async function handleSaved(message: string) {
+    setModalOpen(false);
+    setEditing(null);
+    setInitialDraft(null);
+    setToast(message);
+    await loadDashboard();
+  }
+
+  async function handleDelete(application: InternshipApplication) {
+    if (!window.confirm(`Delete the ${application.role} application at ${application.company}?`)) return;
+    try {
+      await deleteApplication(application.id);
+      setToast("Application deleted");
+      await loadDashboard();
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.status === 404 ? "That application no longer exists." : "Could not delete the application.");
+    }
+  }
+
+  async function handleSignedOut() {
+    await logout();
+    setAccountOpen(false);
+    setUser(null);
+    setApplications([]);
+    setStats(EMPTY_STATS);
+    setBetaProgress(null);
+  }
+
+  function handleAccountDeleted() {
+    setAccountOpen(false);
+    setUser(null);
+    setApplications([]);
+    setStats(EMPTY_STATS);
+    setBetaProgress(null);
+  }
+
+  async function handleRequestVerification() {
+    setVerificationBusy(true);
+    try {
+      await requestEmailVerification();
+      setToast("Verification email queued");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not send a verification email.");
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+
+  function openCreate() {
+    setEditing(null);
+    setInitialDraft(null);
+    setModalOpen(true);
+  }
+
+  function openEdit(application: InternshipApplication) {
+    setEditing(application);
+    setInitialDraft(null);
+    setModalOpen(true);
+  }
+
+  function openAiImport() {
+    if (!user?.email_verified) {
+      setError("Verify your email before using AI import.");
+      return;
+    }
+    setError("");
+    setAiModalOpen(true);
+  }
+
+  function handleAiDraft(draft: AiJobDraft) {
+    setInitialDraft({
+      company: draft.company ?? "",
+      role: draft.role ?? "",
+      status: "saved",
+      application_date: today(),
+      deadline: draft.deadline,
+      next_step: null,
+      next_step_date: null,
+      location: draft.location,
+      source_url: draft.source_url,
+      notes: draft.notes
+    });
+    setEditing(null);
+    setAiModalOpen(false);
+    setModalOpen(true);
+  }
+
+  async function handleCsvImported(result: CsvImportResult) {
+    setCsvModalOpen(false);
+    setPage(1);
+    setToast(`Imported ${result.imported_applications} applications${result.skipped_duplicates ? ` · ${result.skipped_duplicates} duplicates skipped` : ""}`);
+    await loadDashboard();
+  }
+
+  function handleFeedbackSubmitted() {
+    setFeedbackOpen(false);
+    setToast("Thanks—your beta feedback was saved");
+    setBetaProgress((current) => current ? { ...current, feedback_submitted: true } : current);
+  }
+
+  const upcoming = useMemo(() => stats.upcoming_deadlines.slice(0, 4), [stats.upcoming_deadlines]);
+  const upcomingActions = useMemo(() => stats.upcoming_actions.slice(0, 4), [stats.upcoming_actions]);
+
+  if (authLoading) {
+    return <div className="app-loading"><span className="loader" /><p>Opening InternTrack…</p></div>;
+  }
+
+  if (!user) {
+    return <AuthScreen desktopMode={desktopMode} notice={authNotice} onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setError(""); setAuthNotice(""); }} />;
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#top" aria-label="InternTrack home"><span className="brand-mark"><Icon name="briefcase" size={18} /></span><span>Intern<span>Track</span></span></a>
+        <nav aria-label="Main navigation"><a href="#overview">Overview</a><a href="#applications">Applications</a></nav>
+        <div className="topbar-actions"><button className="button primary compact" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button><button className="account-button" onClick={() => setAccountOpen(true)} aria-label="Open account settings"><span>{user.email.slice(0, 1).toUpperCase()}</span><small>{user.email}</small></button></div>
+      </header>
+
+      <main id="top">
+        <section className="welcome" id="overview">
+          <div>
+            <p className="eyebrow">Your search, organized</p>
+            <h1>Turn applications into <em>momentum.</em></h1>
+            <p>Keep every role, deadline, and next step in one calm workspace.</p>
+          </div>
+          <div className="welcome-note"><Icon name="spark" /><span><strong>{stats.active_applications}</strong> opportunities currently in motion</span></div>
+        </section>
+
+        {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => void loadDashboard()}>Try again</button></div>}
+
+        {!desktopMode && !user.email_verified && <div className="verification-banner" role="status"><div><strong>Verify your email</strong><span>Confirm your address so password recovery and future reminders reach you.</span></div><button className="button secondary compact" disabled={verificationBusy} onClick={() => void handleRequestVerification()}>{verificationBusy ? "Sending…" : "Send verification email"}</button></div>}
+
+        {betaProgress && <BetaLaunchpad progress={betaProgress} onAdd={openCreate} onAiImport={openAiImport} onEnableReminders={() => setAccountOpen(true)} onVerify={() => void handleRequestVerification()} onFeedback={() => setFeedbackOpen(true)} />}
+
+        <section className="metric-grid" aria-label="Application summary">
+          <article className="metric-card"><span className="metric-icon blue"><Icon name="briefcase" /></span><div><p>Total applications</p><strong>{loading ? "—" : stats.total_applications}</strong><small>All tracked roles</small></div></article>
+          <article className="metric-card"><span className="metric-icon coral"><Icon name="activity" /></span><div><p>Active pipeline</p><strong>{loading ? "—" : stats.active_applications}</strong><small>Saved through interview</small></div></article>
+          <article className="metric-card"><span className="metric-icon gold"><Icon name="calendar" /></span><div><p>Interviews</p><strong>{loading ? "—" : interviewCount}</strong><small>Keep preparing</small></div></article>
+          <article className="metric-card"><span className="metric-icon green"><Icon name="spark" /></span><div><p>Offers</p><strong>{loading ? "—" : offerCount}</strong><small>Wins worth celebrating</small></div></article>
+        </section>
+
+        <section className="insight-grid">
+          <article className="panel pipeline-panel">
+            <div className="panel-heading"><div><p className="eyebrow">Pipeline</p><h2>Where things stand</h2></div><span>{stats.total_applications} total</span></div>
+            <div className="pipeline-list">
+              {STATUSES.map((status) => {
+                const count = stats.by_status[status] ?? 0;
+                return <div className="pipeline-row" key={status}><div className="pipeline-label"><StatusBadge status={status} /><strong>{count}</strong></div><div className="progress-track"><span className={`progress-fill fill-${status}`} style={{ width: `${(count / statusMax) * 100}%` }} /></div></div>;
+              })}
+            </div>
+          </article>
+          <article className="panel deadline-panel">
+            <div className="panel-heading"><div><p className="eyebrow">Coming up</p><h2>Next deadlines</h2></div><Icon name="calendar" /></div>
+            {upcoming.length ? <div className="deadline-list">{upcoming.map((item) => {
+              const remaining = daysUntil(item.deadline);
+              return <div className="deadline-item" key={item.id}><div className="date-block"><strong>{new Date(`${item.deadline}T00:00:00`).toLocaleDateString("en-US", { day: "2-digit" })}</strong><span>{new Date(`${item.deadline}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}</span></div><div><strong>{item.company}</strong><span>{item.role}</span></div><small>{remaining === 0 ? "Today" : `${remaining}d`}</small></div>;
+            })}</div> : <div className="small-empty"><Icon name="calendar" /><p>No upcoming deadlines yet.</p></div>}
+          </article>
+          <article className="panel action-panel">
+            <div className="panel-heading"><div><p className="eyebrow">Stay moving</p><h2>Next actions</h2></div><Icon name="arrow" /></div>
+            {upcomingActions.length ? <div className="deadline-list">{upcomingActions.map((item) => {
+              const remaining = daysUntil(item.next_step_date);
+              return <div className="deadline-item action-item" key={item.id}><div className="date-block"><strong>{new Date(`${item.next_step_date}T00:00:00`).toLocaleDateString("en-US", { day: "2-digit" })}</strong><span>{new Date(`${item.next_step_date}T00:00:00`).toLocaleDateString("en-US", { month: "short" })}</span></div><div><strong>{item.next_step}</strong><span>{item.company} · {item.role}</span></div><small>{remaining === 0 ? "Today" : `${remaining}d`}</small></div>;
+            })}</div> : <div className="small-empty"><Icon name="arrow" /><p>Add a next step to keep momentum.</p></div>}
+          </article>
+        </section>
+
+        <section className="applications-section" id="applications">
+          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary calendar-export-button" onClick={() => setCalendarModalOpen(true)}><Icon name="download" size={17} /> Export calendar</button><button className="button secondary" onClick={() => setCsvModalOpen(true)}><Icon name="upload" size={17} /> Import CSV</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
+
+          <div className="toolbar">
+            <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
+            <label><span className="sr-only">Filter by status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ApplicationStatus | "all")}><option value="all">All statuses</option>{STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}</select></label>
+            <label><span className="sr-only">Sort applications</span><select value={`${sortBy}:${sortOrder}`} onChange={(event) => { const [field, order] = event.target.value.split(":"); setSortBy(field as SortBy); setSortOrder(order as SortOrder); }}><option value="created_at:desc">Recently added</option><option value="next_step_date:asc">Next action soonest</option><option value="deadline:asc">Deadline soonest</option><option value="application_date:desc">Recently applied</option><option value="company:asc">Company A–Z</option></select></label>
+            {hasFilters && <button className="clear-button" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Clear filters</button>}
+          </div>
+
+          <div className="table-wrap">
+            {loading ? <div className="loading-state"><span className="loader" /><p>Loading your applications…</p></div> : applications.length ? <>
+              <table>
+                <thead><tr><th>Company & role</th><th>Status</th><th>Applied</th><th>Deadline</th><th>Next step</th><th>Location</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>{applications.map((application) => <tr key={application.id}><td><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div></td><td><StatusBadge status={application.status} /></td><td>{formatDate(application.application_date)}</td><td>{formatDate(application.deadline)}</td><td><div className="next-step-cell"><strong>{application.next_step || "—"}</strong>{application.next_step_date && <span>{formatDate(application.next_step_date)}</span>}</div></td><td>{application.location || "—"}</td><td><div className="row-actions">{application.source_url && <a className="icon-button" href={application.source_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${application.company} job posting`}><Icon name="link" size={17} /></a>}<button className="icon-button" onClick={() => openEdit(application)} aria-label={`Edit ${application.company} application`}><Icon name="edit" size={17} /></button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></td></tr>)}</tbody>
+              </table>
+              <div className="mobile-application-list">{applications.map((application) => <article className="application-card" key={application.id}><div className="application-card-top"><div className="company-cell"><span className="company-avatar">{application.company.slice(0, 2).toUpperCase()}</span><div><strong>{application.company}</strong><span>{application.role}</span></div></div><StatusBadge status={application.status} /></div><dl><div><dt>Applied</dt><dd>{formatDate(application.application_date)}</dd></div><div><dt>Deadline</dt><dd>{formatDate(application.deadline)}</dd></div>{application.next_step && <div><dt>Next step</dt><dd>{application.next_step}{application.next_step_date ? ` · ${formatDate(application.next_step_date)}` : ""}</dd></div>}</dl><div className="application-card-actions"><button className="button secondary" onClick={() => openEdit(application)}><Icon name="edit" size={16} /> Edit</button><button className="icon-button danger" onClick={() => void handleDelete(application)} aria-label={`Delete ${application.company} application`}><Icon name="trash" size={17} /></button></div></article>)}</div>
+            </> : <div className="empty-state"><span className="empty-illustration"><Icon name="briefcase" size={34} /></span><h3>{hasFilters ? "No matching applications" : "Your next opportunity starts here"}</h3><p>{hasFilters ? "Try clearing a filter or searching for another company." : "Add your first application and keep every next step within reach."}</p>{hasFilters ? <button className="button secondary" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Clear filters</button> : <button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add first application</button>}</div>}
+          </div>
+          {pagination.pages > 1 && <div className="pagination" aria-label="Application pages"><p>{pagination.total} applications · Page {page} of {pagination.pages}</p><div><button className="button secondary" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button><button className="button secondary" disabled={page >= pagination.pages} onClick={() => setPage((current) => current + 1)}>Next</button></div></div>}
+        </section>
+      </main>
+
+      <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
+      {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
+      {csvModalOpen && <CsvImportModal onClose={() => setCsvModalOpen(false)} onImported={handleCsvImported} />}
+      {calendarModalOpen && <CalendarExportModal onClose={() => setCalendarModalOpen(false)} />}
+      {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
+      {accountOpen && <AccountDialog user={user} runtime={runtime} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
+      {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}
+      <div className={`toast ${toast ? "visible" : ""}`} role="status" aria-live="polite">{toast}</div>
+    </div>
+  );
+}
+

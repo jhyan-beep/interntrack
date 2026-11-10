@@ -1,0 +1,234 @@
+export const STATUSES = [
+  "saved",
+  "applied",
+  "interview",
+  "offer",
+  "rejected",
+  "withdrawn"
+] as const;
+
+export type ApplicationStatus = (typeof STATUSES)[number];
+
+export interface InternshipApplication {
+  id: number;
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  application_date: string;
+  deadline: string | null;
+  next_step: string | null;
+  next_step_date: string | null;
+  location: string | null;
+  source_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationInput {
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  application_date: string;
+  deadline: string | null;
+  next_step: string | null;
+  next_step_date: string | null;
+  location: string | null;
+  source_url: string | null;
+  notes: string | null;
+}
+
+export type AiDraftField = "company" | "role" | "location" | "deadline" | "source_url" | "notes";
+
+export interface AiJobDraft {
+  company: string | null;
+  role: string | null;
+  location: string | null;
+  deadline: string | null;
+  source_url: string | null;
+  notes: string | null;
+  uncertain_fields: AiDraftField[];
+}
+
+export interface ApplicationStats {
+  total_applications: number;
+  active_applications: number;
+  by_status: Partial<Record<ApplicationStatus, number>>;
+  upcoming_deadlines: Array<
+    Pick<InternshipApplication, "id" | "company" | "role"> & { deadline: string }
+  >;
+  upcoming_actions: Array<
+    Pick<InternshipApplication, "id" | "company" | "role"> & {
+      next_step: string;
+      next_step_date: string;
+    }
+  >;
+}
+
+export interface PaginatedApplications {
+  items: InternshipApplication[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface CsvImportRowError {
+  row: number;
+  field: string | null;
+  message: string;
+}
+
+export interface CsvImportSample {
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  application_date: string;
+}
+
+export interface CsvImportPreview {
+  total_rows: number;
+  importable_rows: number;
+  duplicate_rows: number;
+  invalid_rows: number;
+  errors: CsvImportRowError[];
+  errors_truncated: boolean;
+  sample: CsvImportSample[];
+}
+
+export interface CsvImportResult {
+  imported_applications: number;
+  skipped_duplicates: number;
+}
+
+export interface User {
+  id: number;
+  email: string;
+  email_verified: boolean;
+  created_at: string;
+}
+
+export interface RuntimeInfo {
+  app_version: string;
+  mode: "web" | "desktop";
+  ai_available: boolean;
+  email_features_available: boolean;
+}
+
+export interface DesktopAiSettings {
+  configured: boolean;
+  model: string;
+}
+
+export interface DesktopEmailConnection {
+  configured: boolean;
+  connected: boolean;
+  account_email: string | null;
+  scope: string | null;
+}
+
+export interface DesktopEmailConnectResult {
+  authorization_url: string;
+  expires_at: string;
+  browser_opened: boolean;
+}
+
+export interface EmailStatusSuggestion {
+  message_id: string;
+  application_id: number;
+  company: string;
+  role: string;
+  current_status: ApplicationStatus;
+  suggested_status: ApplicationStatus;
+  subject: string;
+  sender: string;
+  received_at: string | null;
+  reason: string;
+}
+
+export interface EmailSyncResult {
+  scanned_messages: number;
+  suggestions: EmailStatusSuggestion[];
+}
+
+export interface ReminderSettings {
+  deadline_reminders_enabled: boolean;
+  deadline_reminder_days: number;
+  reminder_timezone: string;
+}
+
+export interface PortableBackup {
+  kind: "interntrack-portable-backup";
+  schema_version: 1;
+  exported_at: string;
+  applications: Array<ApplicationInput & { created_at: string; updated_at: string }>;
+  preferences: ReminderSettings;
+}
+
+export interface PortableBackupPreview {
+  current_applications: number;
+  backup_applications: number;
+  duplicate_applications: number;
+  merge_import_count: number;
+}
+
+export interface PortableBackupRestoreResult {
+  mode: "merge" | "replace";
+  imported_applications: number;
+  skipped_duplicates: number;
+  removed_applications: number;
+  preferences_restored: boolean;
+}
+
+export interface DesktopRecoverySnapshot {
+  snapshot_id: string;
+  kind: "upgrade" | "restore";
+  created_at: string;
+  size_bytes: number;
+  revisions: string[];
+  valid: boolean;
+}
+
+export interface DesktopRecoveryState {
+  snapshots: DesktopRecoverySnapshot[];
+  pending_restore: boolean;
+}
+
+export interface DesktopRecoveryRestoreResult {
+  snapshot_id: string;
+  pending_restore: true;
+  restart_required: true;
+}
+
+export interface DesktopReminder {
+  kind: "deadline" | "next_step";
+  application_id: number;
+  company: string;
+  role: string;
+  scheduled_date: string;
+  days_remaining: number;
+  message: string;
+}
+
+export interface DesktopReminders {
+  items: DesktopReminder[];
+}
+
+export interface BetaProgress {
+  application_count: number;
+  email_verified: boolean;
+  ai_import_used: boolean;
+  reminders_enabled: boolean;
+  feedback_submitted: boolean;
+  activated: boolean;
+}
+
+export interface BetaFeedback {
+  rating: number;
+  comment: string | null;
+  updated_at: string;
+}
+
+export type SortBy = "deadline" | "next_step_date" | "application_date" | "created_at" | "company";
+export type SortOrder = "asc" | "desc";
+

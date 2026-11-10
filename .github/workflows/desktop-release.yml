@@ -1,0 +1,166 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Validate release version and tag
+        id: version
+        shell: pwsh
+        run: ./desktop/scripts/validate_release_version.ps1 -Tag $env:GITHUB_REF_NAME
+
+      - name: Require release signing secrets
+        shell: pwsh
+        run: |
+          $required = @(
+            "WINDOWS_CERTIFICATE_PFX_BASE64",
+            "WINDOWS_CERTIFICATE_PASSWORD",
+            "WINDOWS_TIMESTAMP_URL",
+            "TAURI_SIGNING_PRIVATE_KEY"
+          )
+          $missing = $required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
+          if ($missing) {
+            throw "Missing required release secrets: $($missing -join ', ')"
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - name: Select stable Rust
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-interntrack-release-${{ hashFiles('desktop/src-tauri/Cargo.toml') }}
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-desktop.txt
+          pnpm --dir frontend install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+
+      - name: Import Windows signing certificate
+        id: certificate
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "interntrack-release.pfx"
+          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_PFX_BASE64)
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          $securePassword = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Where-Object HasPrivateKey | Select-Object -First 1
+          if (-not $certificate) {
+            throw "The imported Windows signing certificate does not contain a private key."
+          }
+
+          $releaseConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+              windows = @{
+                certificateThumbprint = $certificate.Thumbprint
+                digestAlgorithm = "sha256"
+                timestampUrl = $env:WINDOWS_TIMESTAMP_URL
+              }
+            }
+          }
+          $configPath = Join-Path $env:RUNNER_TEMP "interntrack.release.conf.json"
+          $releaseConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "config_path=$configPath"
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "certificate_path=$certificatePath"
+
+      - name: Build Python API sidecar
+        shell: pwsh
+        run: ./desktop/scripts/build_sidecar.ps1 -SkipFrontendInstall
+
+      - name: Build signed installer and updater artifacts
+        shell: pwsh
+        run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc --config "${{ steps.certificate.outputs.config_path }}"
+
+      - name: Exercise packaged API without Python on PATH
+        run: python desktop/scripts/smoke_sidecar.py --binary desktop/src-tauri/binaries/interntrack-api-x86_64-pc-windows-msvc.exe --expected-version "${{ steps.version.outputs.version }}"
+
+      - name: Verify signature and create checksums
+        shell: pwsh
+        run: |
+          $bundleDirectory = "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $installer = Get-ChildItem -LiteralPath $bundleDirectory -Filter "*-setup.exe" -File | Select-Object -First 1
+          if (-not $installer) {
+            throw "The NSIS setup executable was not created."
+          }
+          $signature = Get-AuthenticodeSignature -LiteralPath $installer.FullName
+          if ($signature.Status -ne "Valid") {
+            throw "Installer Authenticode signature is $($signature.Status): $($signature.StatusMessage)"
+          }
+          $checksumLines = Get-ChildItem -LiteralPath $bundleDirectory -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          Set-Content -LiteralPath (Join-Path $bundleDirectory "SHA256SUMS.txt") -Value $checksumLines -Encoding utf8NoBOM
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InternTrack-Windows-${{ steps.version.outputs.version }}
+          path: desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*
+          if-no-files-found: error
+
+      - name: Create draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = "${{ steps.version.outputs.version }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --verify-tag --draft --generate-notes --title "InternTrack Desktop $version"
+          }
+          $releaseFiles = Get-ChildItem -LiteralPath "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" -File | Select-Object -ExpandProperty FullName
+          gh release upload $tag $releaseFiles --clobber
+
+      - name: Remove temporary certificate
+        if: always()
+        shell: pwsh
+        run: |
+          $certificatePath = "${{ steps.certificate.outputs.certificate_path }}"
+          if ($certificatePath) {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+

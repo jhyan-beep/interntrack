@@ -9,44 +9,68 @@ from app.schemas import ApplicationCreate, ApplicationUpdate
 
 SORT_COLUMNS = {
     "deadline": InternshipApplication.deadline,
+    "next_step_date": InternshipApplication.next_step_date,
     "application_date": InternshipApplication.application_date,
     "created_at": InternshipApplication.created_at,
     "company": InternshipApplication.company,
 }
 
 
-def create_application(db: Session, application_in: ApplicationCreate) -> InternshipApplication:
-    application = InternshipApplication(**application_in.model_dump())
+def create_application(
+    db: Session,
+    application_in: ApplicationCreate,
+    user_id: int,
+) -> InternshipApplication:
+    application = InternshipApplication(**application_in.model_dump(), user_id=user_id)
     db.add(application)
     db.commit()
     db.refresh(application)
     return application
 
 
-def get_application(db: Session, application_id: int) -> InternshipApplication | None:
-    return db.get(InternshipApplication, application_id)
+def get_application(
+    db: Session,
+    application_id: int,
+    user_id: int,
+) -> InternshipApplication | None:
+    return db.scalar(
+        select(InternshipApplication).where(
+            InternshipApplication.id == application_id,
+            InternshipApplication.user_id == user_id,
+        )
+    )
 
 
 def list_applications(
     db: Session,
+    user_id: int,
     status: ApplicationStatus | None = None,
     company: str | None = None,
     sort_by: str = "created_at",
     sort_order: str = "desc",
-) -> list[InternshipApplication]:
-    statement = select(InternshipApplication)
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[InternshipApplication], int]:
+    filters = [InternshipApplication.user_id == user_id]
 
     if status is not None:
-        statement = statement.where(InternshipApplication.status == status)
+        filters.append(InternshipApplication.status == status)
 
     if company:
-        statement = statement.where(InternshipApplication.company.ilike(f"%{company}%"))
+        filters.append(InternshipApplication.company.ilike(f"%{company}%"))
+
+    total = db.scalar(select(func.count(InternshipApplication.id)).where(*filters)) or 0
+    statement = select(InternshipApplication).where(*filters)
 
     sort_column = SORT_COLUMNS.get(sort_by, InternshipApplication.created_at)
     order_by = asc(sort_column) if sort_order == "asc" else desc(sort_column)
 
-    statement = statement.order_by(order_by, InternshipApplication.id.asc())
-    return list(db.scalars(statement).all())
+    statement = (
+        statement.order_by(order_by, InternshipApplication.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return list(db.scalars(statement).all()), total
 
 
 def update_application(
@@ -69,13 +93,20 @@ def delete_application(db: Session, application: InternshipApplication) -> None:
     db.commit()
 
 
-def get_application_stats(db: Session) -> dict:
-    total = db.scalar(select(func.count(InternshipApplication.id))) or 0
+def get_application_stats(db: Session, user_id: int) -> dict:
+    total = (
+        db.scalar(
+            select(func.count(InternshipApplication.id)).where(
+                InternshipApplication.user_id == user_id
+            )
+        )
+        or 0
+    )
 
     status_rows = db.execute(
-        select(InternshipApplication.status, func.count(InternshipApplication.id)).group_by(
-            InternshipApplication.status
-        )
+        select(InternshipApplication.status, func.count(InternshipApplication.id))
+        .where(InternshipApplication.user_id == user_id)
+        .group_by(InternshipApplication.status)
     ).all()
     by_status = {status.value: count for status, count in status_rows}
 
@@ -87,6 +118,7 @@ def get_application_stats(db: Session) -> dict:
     active_count = (
         db.scalar(
             select(func.count(InternshipApplication.id)).where(
+                InternshipApplication.user_id == user_id,
                 InternshipApplication.status.in_(active_statuses)
             )
         )
@@ -96,9 +128,22 @@ def get_application_stats(db: Session) -> dict:
     upcoming_deadlines = list(
         db.scalars(
             select(InternshipApplication)
+            .where(InternshipApplication.user_id == user_id)
             .where(InternshipApplication.deadline.is_not(None))
             .where(InternshipApplication.deadline >= date.today())
             .order_by(InternshipApplication.deadline.asc())
+            .limit(5)
+        ).all()
+    )
+
+    upcoming_actions = list(
+        db.scalars(
+            select(InternshipApplication)
+            .where(InternshipApplication.user_id == user_id)
+            .where(InternshipApplication.next_step.is_not(None))
+            .where(InternshipApplication.next_step_date.is_not(None))
+            .where(InternshipApplication.next_step_date >= date.today())
+            .order_by(InternshipApplication.next_step_date.asc())
             .limit(5)
         ).all()
     )
@@ -108,4 +153,6 @@ def get_application_stats(db: Session) -> dict:
         "active_applications": active_count,
         "by_status": by_status,
         "upcoming_deadlines": upcoming_deadlines,
+        "upcoming_actions": upcoming_actions,
     }
+
