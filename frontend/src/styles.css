@@ -314,6 +314,9 @@ tbody tr:hover { background: #fbfcff; }
 .gmail-suggestions article p { margin-top: 7px; color: #344054; font-weight: 600; }
 .gmail-suggestions article small { margin-top: 4px; display: block; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .gmail-suggestions article button { margin-top: 10px; }
+.about-links { margin-top: 15px; display: flex; flex-wrap: wrap; gap: 9px; }
+.about-links a { padding: 8px 11px; border: 1px solid #d8dad8; border-radius: 9px; color: #344054; background: white; font-size: 12px; font-weight: 700; text-decoration: none; }
+.about-links a:hover { border-color: #9ba3af; color: var(--blue); }
 .account-actions { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; }
 .danger-link { padding: 8px; border: 0; color: #bc3f33; background: transparent; font-size: 12px; font-weight: 700; }
 .danger-link:hover { text-decoration: underline; }
@@ -432,3 +435,4 @@ footer span { font: 800 15px "Manrope", sans-serif; color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+

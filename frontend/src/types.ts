@@ -109,6 +109,7 @@ export interface User {
 }
 
 export interface RuntimeInfo {
+  app_version: string;
   mode: "web" | "desktop";
   ai_available: boolean;
   email_features_available: boolean;
@@ -230,3 +231,4 @@ export interface BetaFeedback {
 
 export type SortBy = "deadline" | "next_step_date" | "application_date" | "created_at" | "company";
 export type SortOrder = "asc" | "desc";
+

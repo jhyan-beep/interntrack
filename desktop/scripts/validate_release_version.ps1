@@ -8,15 +8,23 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $tauriConfig = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "desktop\src-tauri\tauri.conf.json") | ConvertFrom-Json
 $desktopPackage = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "desktop\package.json") | ConvertFrom-Json
 $cargoContent = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "desktop\src-tauri\Cargo.toml")
+$appVersionContent = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "app\version.py")
 
 if ($cargoContent -notmatch '(?ms)^\[package\]\s*.*?^version\s*=\s*"([^"]+)"') {
     throw "Could not read the desktop package version from Cargo.toml."
 }
+$cargoVersion = $Matches[1]
+
+if ($appVersionContent -notmatch '(?m)^APP_VERSION\s*=\s*"([^"]+)"') {
+    throw "Could not read APP_VERSION from app/version.py."
+}
+$appVersion = $Matches[1]
 
 $versions = [ordered]@{
+    "app/version.py" = [string]$appVersion
     "tauri.conf.json" = [string]$tauriConfig.version
     "desktop/package.json" = [string]$desktopPackage.version
-    "Cargo.toml" = [string]$Matches[1]
+    "Cargo.toml" = [string]$cargoVersion
 }
 $version = $versions["tauri.conf.json"]
 
@@ -38,3 +46,4 @@ if ($env:GITHUB_OUTPUT) {
     Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version"
 }
 Write-Output "InternTrack desktop version $version is consistent."
+

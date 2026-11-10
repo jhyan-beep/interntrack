@@ -234,6 +234,7 @@ class UserRead(BaseModel):
 
 
 class RuntimeInfo(BaseModel):
+    app_version: str
     mode: Literal["web", "desktop"]
     ai_available: bool
     email_features_available: bool
@@ -493,4 +494,5 @@ class PasswordForgotRequest(BaseModel):
 
 class PasswordResetRequest(EmailTokenRequest):
     new_password: str = Field(..., min_length=8, max_length=128)
+
 

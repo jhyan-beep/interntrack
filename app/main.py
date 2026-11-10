@@ -109,6 +109,7 @@ from app.security import (
     enforce_auth_rate_limit,
     sanitize_csv_cell,
 )
+from app.version import APP_VERSION
 
 settings = get_settings()
 configure_logging(settings)
@@ -117,7 +118,7 @@ configure_logging(settings)
 app = FastAPI(
     title=settings.app_name,
     description="Track software engineering internship applications.",
-    version="2.18.0",
+    version=APP_VERSION,
     docs_url=None if settings.environment == "production" else "/docs",
     redoc_url=None if settings.environment == "production" else "/redoc",
     openapi_url=None if settings.environment == "production" else "/openapi.json",
@@ -161,6 +162,7 @@ def readiness_check(db: Annotated[Session, Depends(get_db)]) -> dict[str, str]:
 def runtime_info() -> RuntimeInfo:
     desktop_mode = settings.environment == "desktop"
     return RuntimeInfo(
+        app_version=APP_VERSION,
         mode="desktop" if desktop_mode else "web",
         ai_available=settings.openai_api_key is not None,
         email_features_available=not desktop_mode,
@@ -1316,4 +1318,5 @@ def get_stats(
 frontend_directory = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if settings.environment != "test" and frontend_directory.exists():
     app.mount("/", StaticFiles(directory=frontend_directory, html=True), name="frontend")
+
 
