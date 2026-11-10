@@ -238,6 +238,9 @@ tbody tr:hover { background: #fbfcff; }
 .toast { position: fixed; left: 50%; bottom: 25px; padding: 12px 18px; border-radius: 11px; color: white; background: var(--ink); box-shadow: 0 16px 40px rgba(13, 28, 48, .25); font-size: 13px; font-weight: 700; opacity: 0; transform: translate(-50%, 14px); pointer-events: none; transition: .22s ease; z-index: 60; }
 .toast.visible { opacity: 1; transform: translate(-50%, 0); }
 .account-dialog { width: min(620px, 100%); }
+.calendar-export-dialog > p, .calendar-export-details { color: var(--muted); font-size: 13px; line-height: 1.65; }
+.calendar-export-details { padding-left: 22px; }
+.calendar-export-details li + li { margin-top: 8px; }
 .account-summary { padding: 18px; border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; gap: 13px; background: #f8f8f5; }
 .account-summary > span { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: white; background: var(--ink); font: 800 16px "Manrope", sans-serif; }
 .account-summary > div { min-width: 0; display: grid; gap: 4px; }

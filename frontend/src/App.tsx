@@ -49,6 +49,7 @@ import {
   updateApplication
 } from "./api";
 import AuthScreen from "./AuthScreen";
+import CalendarExportModal from "./CalendarExportModal";
 import {
   STATUSES,
   type AiJobDraft,
@@ -1203,6 +1204,7 @@ export default function App() {
   const [modalOpen, setModalOpen] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [editing, setEditing] = useState<InternshipApplication | null>(null);
   const [initialDraft, setInitialDraft] = useState<ApplicationInput | null>(null);
   const [toast, setToast] = useState("");
@@ -1502,7 +1504,7 @@ export default function App() {
         </section>
 
         <section className="applications-section" id="applications">
-          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary" onClick={() => setCsvModalOpen(true)}><Icon name="upload" size={17} /> Import CSV</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">Application tracker</p><h2>Your opportunities</h2></div><div className="section-actions">{runtime.ai_available && <button className="button ai-button" onClick={openAiImport}><Icon name="spark" size={17} /> AI import</button>}<button className="button secondary" onClick={() => setCalendarModalOpen(true)}><Icon name="download" size={17} /> Export calendar</button><button className="button secondary" onClick={() => setCsvModalOpen(true)}><Icon name="upload" size={17} /> Import CSV</button><button className="button secondary" onClick={() => void downloadCsv().catch(() => setError("Could not export applications."))}><Icon name="download" size={17} /> Export CSV</button><button className="button primary" onClick={openCreate}><Icon name="plus" size={17} /> Add application</button></div></div>
 
           <div className="toolbar">
             <label className="search-field"><span className="sr-only">Search companies</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by company…" /></label>
@@ -1527,6 +1529,7 @@ export default function App() {
       <footer><span>InternTrack</span><p>{desktopMode ? "Local-first · Your application data stays on this computer." : "Built to make the internship search feel manageable."}</p></footer>
       {aiModalOpen && <AiImportModal onClose={() => setAiModalOpen(false)} onDraft={handleAiDraft} />}
       {csvModalOpen && <CsvImportModal onClose={() => setCsvModalOpen(false)} onImported={handleCsvImported} />}
+      {calendarModalOpen && <CalendarExportModal onClose={() => setCalendarModalOpen(false)} />}
       {modalOpen && <ApplicationModal application={editing} initialDraft={initialDraft} onClose={() => { setModalOpen(false); setEditing(null); setInitialDraft(null); }} onSaved={handleSaved} />}
       {accountOpen && <AccountDialog user={user} runtime={runtime} desktopMode={desktopMode} onAiAvailabilityChanged={(available) => setRuntime((current) => ({ ...current, ai_available: available }))} onDataRestored={loadDashboard} onClose={() => { setAccountOpen(false); void loadDashboard(); }} onSignedOut={handleSignedOut} onDeleted={handleAccountDeleted} />}
       {feedbackOpen && <BetaFeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmitted={handleFeedbackSubmitted} />}

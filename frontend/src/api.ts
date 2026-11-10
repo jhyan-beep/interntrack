@@ -343,6 +343,22 @@ export function deleteApplication(id: number): Promise<void> {
   return request(`/applications/${id}`, { method: "DELETE" });
 }
 
+export async function downloadCalendar(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/applications/calendar.ics`, {
+    credentials: "include"
+  });
+  if (!response.ok) throw new ApiError("Could not export calendar. Please try again.", response.status);
+
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "interntrack-calendar.ics";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export async function downloadCsv(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/applications/export.csv`, {
     credentials: "include"
@@ -361,3 +377,4 @@ export async function downloadCsv(): Promise<void> {
   link.remove();
   URL.revokeObjectURL(url);
 }
+

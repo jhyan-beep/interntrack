@@ -13,6 +13,7 @@ InternTrack is a responsive web application for tracking software engineering in
 - Sort applications by deadline, next action, application date, created date, or company
 - View application statistics grouped by status
 - Export applications as CSV
+- Export dated deadlines and next steps as an iCalendar (.ics) snapshot
 - Responsive dashboard for desktop and mobile
 - Create and edit applications from an accessible form
 - Visual pipeline and upcoming deadline overview
@@ -41,6 +42,14 @@ InternTrack is a responsive web application for tracking software engineering in
 - Local-first Windows desktop edition with system tray and opt-in sign-in startup
 - GitHub Actions CI
 
+## Calendar export
+
+Select **Export calendar → Download .ics** in the application tracker, then import the file using your calendar app's file import option. The authenticated export includes every dated deadline and next step for Saved, Applied, Interview, and Offer applications, including past dates, independently of table filters. Rejected and Withdrawn applications are excluded.
+
+Events use all-day dates so deadlines stay on the selected day across time zones. The file includes company names, roles, dates, and next-step text; it excludes private notes and connected email data. Keep the downloaded file private. Export is a one-time snapshot: later edits and deletions in InternTrack do not change events already imported elsewhere. Use a dedicated calendar you can replace when re-importing; some calendar apps may create duplicates on repeated imports even though event IDs stay stable.
+
+The serializer follows [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html) for text escaping, CRLF content lines, UTF-8 line folding, and all-day event duration. Calendar export uses the existing account session and requires no calendar-provider credentials or additional service.
+
 ## Tech Stack
 
 - FastAPI
@@ -65,6 +74,7 @@ app/
   auth.py        Password hashing, sessions, and current-user dependency
   beta.py        Privacy-conscious milestones, feedback, and activation metrics
   beta_metrics.py  Aggregate beta report CLI without emails or job content
+  calendar_export.py  Portable all-day iCalendar snapshots
   crud.py        Database operations
   database.py    Settings, engine, sessions, and table creation
   desktop.py     Local SQLite setup, migrations, and packaged API entrypoint
@@ -114,6 +124,7 @@ Caddyfile              Automatic HTTPS reverse proxy
 | GET | `/health/live` | Process liveness check |
 | GET | `/health/ready` | Database readiness check |
 | GET | `/runtime` | Report web/desktop mode and optional feature availability |
+| GET | `/applications/calendar.ics` | Download the current user's deadline and next-step calendar |
 | POST | `/auth/register` | Create an account and session |
 | POST | `/auth/login` | Sign in |
 | POST | `/auth/logout` | Sign out |

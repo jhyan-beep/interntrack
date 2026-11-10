@@ -32,6 +32,7 @@ from app.auth import (
     verify_password,
 )
 from app.beta import get_beta_progress, record_product_event, save_beta_feedback
+from app.calendar_export import build_calendar
 from app.csv_imports import CsvImportError, analyze_csv_import
 from app.database import get_db, get_settings
 from app.desktop_backups import (
@@ -1191,6 +1192,32 @@ def export_applications_csv(
         iter([buffer.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=applications.csv"},
+    )
+
+
+@app.get("/applications/calendar.ics")
+def export_applications_calendar(
+    user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    applications = db.scalars(
+        select(InternshipApplication)
+        .where(
+            InternshipApplication.user_id == user.id,
+            InternshipApplication.status.not_in([
+                ApplicationStatus.REJECTED,
+                ApplicationStatus.WITHDRAWN,
+            ]),
+        )
+        .order_by(InternshipApplication.id.asc())
+    )
+    return Response(
+        content=build_calendar(applications),
+        media_type="text/calendar",
+        headers={
+            "Content-Disposition": 'attachment; filename="interntrack-calendar.ics"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
