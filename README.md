@@ -6,6 +6,8 @@ InternTrack is a responsive web application for tracking software engineering in
 
 > **Early beta:** The product site and source code are public, but there is not yet a signed stable installer for general distribution. Windows release builds remain draft-only until the signing and clean-machine checks in `docs/desktop-release.md` are complete.
 
+**Current candidate:** `0.2.0-rc.1`. Read the [candidate status and acceptance checklist](docs/release-candidate.md) and the [desktop tester guide](docs/user-guide.md).
+
 ## Features
 
 - Create, read, update, and delete internship applications
@@ -258,7 +260,7 @@ desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/
 
 Pull requests that touch desktop runtime files also run the `Windows Desktop` workflow and upload the setup executable as a GitHub Actions artifact.
 
-Product version `0.2.0` is defined in `app/version.py`, returned by `/runtime`, shown under **Account settings → About & support**, and checked against the Tauri config, Rust package, and desktop package metadata before every desktop build. Tags named `desktop-v<version>` trigger a separate release workflow that refuses to publish without both Windows code-signing credentials and a Tauri updater signing key. Successful builds verify Authenticode, generate updater signatures and SHA-256 checksums, and create a draft GitHub Release for clean-machine review. See [the Windows desktop release runbook](docs/desktop-release.md) for secret names, tag rules, and the publication checklist.
+The product version is defined in `app/version.py`, returned by `/runtime`, shown under **Account settings → About & support**, and checked against the Tauri config, Rust package, and desktop package metadata before every desktop build. Tags named `desktop-v<version>` trigger a separate release workflow that refuses to publish without both Windows code-signing credentials and a Tauri updater signing key. Successful builds verify Authenticode, generate updater signatures and SHA-256 checksums, and create a draft GitHub Release for clean-machine review. See [the Windows desktop release runbook](docs/desktop-release.md) for secret names, tag rules, and the publication checklist.
 
 Users can download a privacy-safe diagnostics report from **Account settings → About & support** before opening a structured GitHub bug report. The report includes product version, runtime mode, locale, time zone, browser user agent, viewport size, and feature availability; it never includes application records, account identifiers, email content, passwords, or API keys.
 
@@ -464,5 +466,6 @@ Engineered crash-safe desktop upgrades and password-confirmed recovery with cons
 ## Product Roadmap
 
 The current release supports hardened authenticated workspaces, email verification, password recovery, opt-in deadline reminders, reviewable AI-assisted entry, private-beta onboarding and metrics, structured logs, HTTPS deployment configuration, guarded server backups, and secret-free portable desktop backups. Remaining launch work includes deploying a pilot, configuring a verified sending domain and transactional-email provider, scheduling encrypted off-site backups, shared rate limiting for multi-replica deployments, centralized alerting, formal privacy documentation, and billing only after retention is validated.
+
 
 

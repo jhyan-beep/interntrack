@@ -20,7 +20,7 @@ Never add a PFX, updater private key, password, generated release config, or sec
 
 ## Prepare a release
 
-1. Update the version in `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, and `desktop/package.json`.
+1. Update the version in `app/version.py`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, and `desktop/package.json`.
 2. Run `./desktop/scripts/validate_release_version.ps1` and complete the normal pull-request review.
 3. Merge the reviewed stack in order.
 4. Create and push the exact tag `desktop-v<version>`, for example `desktop-v0.2.0`.
@@ -38,3 +38,8 @@ Before publishing the draft:
 5. Review generated notes and publish only after the smoke test passes.
 
 The application does not check for remote updates yet. Signed updater artifacts are generated now so a later updater client can be introduced without changing the release trust boundary.
+
+## Current candidate
+
+The current candidate is `0.2.0-rc.1`. See [release-candidate.md](release-candidate.md) for integration decisions, automated packaging checks, candidate download instructions, and the pending manual release gates.
+

@@ -48,6 +48,17 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_postgres_driver(cls, value: str) -> str:
+        # Hosted providers commonly omit the explicit psycopg 3 driver.
+        if not isinstance(value, str):
+            return value
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
+
     @field_validator("openai_api_key", mode="before")
     @classmethod
     def blank_openai_key_is_unconfigured(cls, value):
@@ -117,4 +128,5 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
 

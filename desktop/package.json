@@ -1,7 +1,7 @@
 {
   "name": "interntrack-desktop",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.0-rc.1",
   "packageManager": "pnpm@11.25.0",
   "scripts": {
     "tauri": "tauri",
@@ -11,3 +11,4 @@
     "@tauri-apps/cli": "2.12.4"
   }
 }
+

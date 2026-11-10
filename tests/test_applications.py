@@ -128,6 +128,17 @@ async def test_update_rejects_null_required_field(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def test_invalid_application_date_update_preserves_existing_record(client: AsyncClient) -> None:
+    created = await make_application(client, application_date="2026-09-24", deadline="2026-10-15")
+    response = await client.patch(
+        f"/applications/{created['id']}", json={"application_date": "2026-10-20"},
+    )
+    assert response.status_code == 422
+    current = (await client.get(f"/applications/{created['id']}")).json()
+    assert current["application_date"] == "2026-09-24"
+    assert current["deadline"] == "2026-10-15"
+
+
 async def test_create_rejects_next_step_date_without_next_step(client: AsyncClient) -> None:
     response = await client.post(
         "/applications",
@@ -253,4 +264,5 @@ async def test_delete_application(client: AsyncClient) -> None:
 
     assert delete_response.status_code == 204
     assert get_response.status_code == 404
+
 

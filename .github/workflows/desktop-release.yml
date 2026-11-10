@@ -113,6 +113,9 @@ jobs:
         shell: pwsh
         run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc --config "${{ steps.certificate.outputs.config_path }}"
 
+      - name: Exercise packaged API without Python on PATH
+        run: python desktop/scripts/smoke_sidecar.py --binary desktop/src-tauri/binaries/interntrack-api-x86_64-pc-windows-msvc.exe --expected-version "${{ steps.version.outputs.version }}"
+
       - name: Verify signature and create checksums
         shell: pwsh
         run: |
@@ -160,3 +163,4 @@ jobs:
           if ($certificatePath) {
             Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
           }
+

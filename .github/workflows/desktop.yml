@@ -26,6 +26,7 @@ jobs:
           python-version: "3.12"
 
       - name: Validate desktop version files
+        id: version
         shell: pwsh
         run: ./desktop/scripts/validate_release_version.ps1
 
@@ -67,9 +68,13 @@ jobs:
       - name: Build NSIS installer
         run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc
 
+      - name: Exercise packaged API without Python on PATH
+        run: python desktop/scripts/smoke_sidecar.py --binary desktop/src-tauri/binaries/interntrack-api-x86_64-pc-windows-msvc.exe --expected-version "${{ steps.version.outputs.version }}"
+
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: InternTrack-Windows-x64
+          name: InternTrack-Windows-x64-${{ steps.version.outputs.version }}
           path: desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+

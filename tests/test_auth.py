@@ -6,6 +6,7 @@ from httpx import AsyncClient
 
 from app.auth import ALGORITHM
 from app.database import get_settings
+from app.version import APP_VERSION
 
 
 pytestmark = pytest.mark.anyio
@@ -67,7 +68,7 @@ async def test_runtime_reports_desktop_capabilities(
 
     assert response.status_code == 200
     assert response.json() == {
-        "app_version": "0.2.0",
+        "app_version": APP_VERSION,
         "mode": "desktop",
         "ai_available": False,
         "email_features_available": False,
@@ -221,4 +222,5 @@ async def test_delete_account_clears_session(client: AsyncClient) -> None:
 
     assert response.status_code == 204
     assert me.status_code == 401
+
 

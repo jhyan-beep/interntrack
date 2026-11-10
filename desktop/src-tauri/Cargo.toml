@@ -1,6 +1,6 @@
 [package]
 name = "interntrack-desktop"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 description = "Local-first desktop edition of InternTrack"
 authors = ["Jiahao Yan"]
 edition = "2021"
@@ -18,3 +18,4 @@ tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
+
