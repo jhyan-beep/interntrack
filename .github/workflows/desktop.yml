@@ -14,7 +14,8 @@ on:
 
 jobs:
   build-windows-installer:
-    runs-on: windows-latest
+    # WebView2 automation currently regresses on Server 2025 (runner-images#14738).
+    runs-on: windows-2022
 
     steps:
       - name: Check out repository

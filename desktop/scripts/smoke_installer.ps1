@@ -56,10 +56,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Installed API smoke test failed." }
     & $PythonExecutable (Join-Path $PSScriptRoot "smoke_recovery.py") --binary $sidecar --expected-version $ExpectedVersion
     if ($LASTEXITCODE -ne 0) { throw "Installed recovery smoke test failed." }
-    $edgeDriver = Join-Path $env:EDGEWEBDRIVER "msedgedriver.exe"
-    if (-not (Test-Path -LiteralPath $edgeDriver -PathType Leaf)) {
-        throw "GitHub runner's Microsoft Edge WebDriver is missing."
-    }
+    $edgeDriver = & (Join-Path $PSScriptRoot "resolve_webview_driver.ps1")
     $diagnosticsDirectory = Join-Path $runnerTemp "interntrack-desktop-smoke"
     & $PythonExecutable (Join-Path $PSScriptRoot "smoke_desktop.py") --launcher $launchers[0].FullName --edge-driver $edgeDriver --expected-version $ExpectedVersion --output-directory $diagnosticsDirectory
     if ($LASTEXITCODE -ne 0) { throw "Installed desktop window smoke test failed. See the desktop smoke diagnostics artifact." }

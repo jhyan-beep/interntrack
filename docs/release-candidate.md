@@ -41,6 +41,8 @@ The harness checks the occupied-port error page and its rendered Quit button; op
 
 These hosted-runner checks supplement the manual gates. They do not verify tray interaction, native notifications, all timeout cases, or cross-version installer upgrades. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
 
+The Windows jobs currently use the hosted Windows Server 2022 image because the newer Server 2025 WebView2 automation session can fail before tests connect ([upstream runner report](https://github.com/actions/runner-images/issues/14738)). Driver setup detects the actual installed WebView2 version and reuses a matching driver, or downloads that version from Microsoft's WebDriver distribution. It does not downgrade or bundle a runtime in the application. A passing check on this runner does not complete acceptance on current consumer Windows/WebView2 releases.
+
 ## Candidate download
 
 Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.2**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
