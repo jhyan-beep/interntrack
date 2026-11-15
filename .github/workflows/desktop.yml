@@ -68,8 +68,12 @@ jobs:
       - name: Build NSIS installer
         run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc
 
-      - name: Exercise packaged API without Python on PATH
-        run: python desktop/scripts/smoke_sidecar.py --binary desktop/src-tauri/binaries/interntrack-api-x86_64-pc-windows-msvc.exe --expected-version "${{ steps.version.outputs.version }}"
+      - name: Verify silent installer and installed runtime
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer." }
+          ./desktop/scripts/smoke_installer.ps1 -InstallerPath $installers[0].FullName -ExpectedVersion "${{ steps.version.outputs.version }}"
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
