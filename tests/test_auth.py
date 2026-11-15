@@ -69,6 +69,7 @@ async def test_runtime_reports_desktop_capabilities(
     assert response.status_code == 200
     assert response.json() == {
         "app_version": APP_VERSION,
+        "desktop_instance_id": None,
         "mode": "desktop",
         "ai_available": False,
         "email_features_available": False,
@@ -84,6 +85,20 @@ async def test_duplicate_email_is_case_insensitive(anonymous_client: AsyncClient
     )
 
     assert response.status_code == 409
+
+
+@pytest.mark.parametrize("environment", ["desktop", "test"])
+async def test_runtime_launch_id_is_only_returned_in_desktop_mode(
+    anonymous_client: AsyncClient,
+    monkeypatch,
+    environment: str,
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "environment", environment)
+    monkeypatch.setattr(settings, "desktop_instance_id", "launch-123")
+    response = await anonymous_client.get("/runtime")
+    assert response.status_code == 200
+    assert response.json()["desktop_instance_id"] == ("launch-123" if environment == "desktop" else None)
 
 
 async def test_login_and_logout(anonymous_client: AsyncClient) -> None:

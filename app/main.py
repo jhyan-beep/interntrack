@@ -164,6 +164,7 @@ def runtime_info() -> RuntimeInfo:
     desktop_mode = settings.environment == "desktop"
     return RuntimeInfo(
         app_version=APP_VERSION,
+        desktop_instance_id=settings.desktop_instance_id if desktop_mode else None,
         mode="desktop" if desktop_mode else "web",
         ai_available=settings.openai_api_key is not None,
         email_features_available=not desktop_mode,

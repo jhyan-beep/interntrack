@@ -235,6 +235,7 @@ class UserRead(BaseModel):
 
 class RuntimeInfo(BaseModel):
     app_version: str
+    desktop_instance_id: str | None = None
     mode: Literal["web", "desktop"]
     ai_available: bool
     email_features_available: bool

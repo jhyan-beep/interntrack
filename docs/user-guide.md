@@ -6,6 +6,12 @@ Use the candidate installer provided for your test session. The current release 
 
 Launch InternTrack and create a local account. This account and its password hash live on this computer. It is not a cloud login, and a local account does not provide cloud password recovery.
 
+### If the workspace will not open
+
+The startup screen waits up to a minute for the local service and database. If it cannot open, the screen explains the problem and shows an error code. Use **Retry startup** to restart InternTrack, or **Quit InternTrack** to stop the desktop app and its local service. Retrying does not delete your account or records.
+
+For `port-unavailable`, close another copy of InternTrack or the application using local port 8765, then retry. For `service-stopped` or `startup-timeout`, retry once; if it happens again, include the code when reporting the issue. A startup failure opens a visible window even when InternTrack was launched in the background at sign-in. If the buttons cannot respond, choose **Quit** from the tray menu and reopen the app.
+
 ## Track your first application
 
 1. Select **Add application**.
