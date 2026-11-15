@@ -1,6 +1,12 @@
-# InternTrack 0.2.0-rc.1
+# InternTrack 0.2.0-rc.2
 
 This candidate consolidates the web and desktop work for a controlled Windows beta. It is not a signed stable release.
+
+## Desktop startup recovery
+
+The shell opens the tracker only after the HTTP runtime reports the matching version and per-launch instance ID, and the database readiness endpoint succeeds. A listening TCP port alone is not sufficient. The instance ID is a launch correlation value, not an account credential.
+
+An occupied port, a missing or stopped service, or a one-minute readiness timeout displays a local error page with Retry and Quit controls. Startup errors also reveal a window after hidden autostart. Retry restarts the desktop process without resetting account data. Sidecar processes share a Windows process group so quitting or restarting the shell also stops the frozen API's child process.
 
 ## Integration decisions
 
@@ -14,7 +20,7 @@ This candidate consolidates the web and desktop work for a controlled Windows be
 
 The standard CI runs PostgreSQL migrations, migration drift checks, pytest, the production frontend build, production Compose validation, and the non-root Docker image build.
 
-The Windows workflow validates the version in Python, Tauri, Cargo, and the desktop package, builds the frozen API and NSIS installer, and silently installs it into a generated directory on a disposable GitHub-hosted Windows runner. It verifies the installed launcher, API and uninstaller, exercises the installed API with only Windows system directories on its PATH, then silently uninstalls the package. The installer script refuses to run on ordinary local machines or self-hosted runners. The runtime smoke checks exercise:
+The Windows workflow validates the version in Python, Tauri, Cargo, and the desktop package, runs the Rust HTTP readiness tests, builds the frozen API and NSIS installer, and silently installs it into a generated directory on a disposable GitHub-hosted Windows runner. It verifies the installed launcher, API and uninstaller, exercises the installed API with only Windows system directories on its PATH, then silently uninstalls the package. The installer script refuses to run on ordinary local machines or self-hosted runners. The runtime smoke checks exercise:
 
 - Bundled frontend delivery and the exact candidate version.
 - Account creation and session authentication.
@@ -29,7 +35,7 @@ The smoke harness uses a Python interpreter, but the application process is the 
 
 ## Candidate download
 
-Open the integration PR's **Windows Desktop** check. When it succeeds, download the versioned **InternTrack-Windows-x64-0.2.0-rc.1** artifact. It contains an unsigned installer intended for controlled testing. Do not present this artifact as a signed public stable release.
+Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.2**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
 
 The signed release workflow remains gated on the signing credentials described in [desktop-release.md](desktop-release.md). Do not push a release tag merely to obtain an unsigned download.
 
@@ -39,6 +45,8 @@ Record the machine, Windows version, installer checksum, result, and any issue f
 
 - [ ] On a clean Windows x64 machine without Python, install and launch the NSIS package.
 - [ ] Confirm the app opens its own window, a second launch focuses the first window, and Quit stops the sidecar.
+- [ ] Occupy port 8765 before launch and verify the error page, then free the port and use Retry. Check that account records survive.
+- [ ] Test a failed API start, readiness timeout, and API termination after opening. Verify the visible error, Retry, and Quit, including hidden autostart. Browser fixtures and HTTP unit tests do not complete this native-shell gate.
 - [ ] Close to tray, reopen, and verify optional start-with-Windows behavior.
 - [ ] Allow native notifications and verify an actual deadline and next-action notification.
 - [ ] Upgrade an earlier installed version and verify accounts, records, settings, and recovery points survive.

@@ -109,6 +109,9 @@ jobs:
         shell: pwsh
         run: ./desktop/scripts/build_sidecar.ps1 -SkipFrontendInstall
 
+      - name: Test desktop HTTP readiness
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --release --target x86_64-pc-windows-msvc --lib
+
       - name: Build signed installer and updater artifacts
         shell: pwsh
         run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc --config "${{ steps.certificate.outputs.config_path }}"

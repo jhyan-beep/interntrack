@@ -6,7 +6,7 @@ InternTrack is a responsive web application for tracking software engineering in
 
 > **Early beta:** The product site and source code are public, but there is not yet a signed stable installer for general distribution. Windows release builds remain draft-only until the signing and clean-machine checks in `docs/desktop-release.md` are complete.
 
-**Current candidate:** `0.2.0-rc.1`. Read the [candidate status and acceptance checklist](docs/release-candidate.md) and the [desktop tester guide](docs/user-guide.md).
+**Current candidate:** `0.2.0-rc.2`. Read the [candidate status and acceptance checklist](docs/release-candidate.md) and the [desktop tester guide](docs/user-guide.md).
 
 ## Features
 

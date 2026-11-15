@@ -47,6 +47,7 @@ class Client:
 def running(binary: Path, directory: Path, client: Client, port: int):
     # Only this generated test workspace and this process tree are affected.
     environment = os.environ.copy()
+    environment["DESKTOP_INSTANCE_ID"] = f"smoke-{port}"
     for name in ("OPENAI_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_ID"):
         environment[name] = ""
     system_root = Path(environment.get("SystemRoot", r"C:\Windows"))
@@ -92,6 +93,7 @@ def smoke(binary: Path, expected_version: str) -> None:
             with running(binary, directory, client, port):
                 runtime = client.json("/runtime")
                 require(runtime["app_version"] == expected_version, "Packaged app version differs from release metadata")
+                require(runtime["desktop_instance_id"] == f"smoke-{port}", "Packaged launch identity was not preserved")
                 require(runtime["mode"] == "desktop" and not runtime["ai_available"], "Unexpected desktop capabilities")
                 html = client.request("/").decode("utf-8")
                 asset = re.search(r'src="(/assets/[^"]+\.js)"', html)

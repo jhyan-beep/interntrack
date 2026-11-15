@@ -1,20 +1,52 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Opening InternTrack</title>
-    <style>
-      :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #17233c; background: #f5f5ef; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
-      main { text-align: center; }
-      strong { display: block; font-family: Georgia, serif; font-size: 2rem; font-weight: 500; }
-      p { color: #687184; }
-      .loader { width: 28px; height: 28px; margin: 24px auto; border: 3px solid #d9ddd7; border-top-color: #2f6f59; border-radius: 50%; animation: spin .8s linear infinite; }
-      @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
-  </head>
-  <body>
-    <main><strong>InternTrack</strong><div class="loader"></div><p>Opening your local workspace…</p></main>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Opening InternTrack</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #17233c; background: #f5f5ef; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 24px; display: grid; place-items: center; }
+    main { width: min(560px, 100%); padding: 40px; border: 1px solid #dfdfd6; border-radius: 22px; background: #fffefa; box-shadow: 0 18px 60px #17233c0a; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 750; }
+    .brand span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: white; background: #2f6f59; font-size: 13px; }
+    h1 { margin: 30px 0 14px; font: 500 34px/1.2 Georgia, serif; letter-spacing: -.7px; }
+    p { color: #687184; font-size: 14px; line-height: 1.7; }
+    .loader { width: 28px; height: 28px; margin: 24px 0; border: 3px solid #d9ddd7; border-top-color: #2f6f59; border-radius: 50%; animation: spin .8s linear infinite; }
+    .code { display: inline-block; padding: 5px 9px; border-radius: 6px; background: #f3eee4; color: #7b592c; font-size: 11px; overflow-wrap: anywhere; }
+    .details { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e8e7df; }
+    .details p { font-size: 12px; }
+    .actions { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; }
+    button { min-height: 44px; padding: 0 18px; border: 1px solid #d6dcd3; border-radius: 10px; background: white; color: #324b40; font: 650 13px Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+    button.primary { color: white; background: #2f6f59; border-color: #2f6f59; }
+    button:focus-visible { outline: 3px solid #a5c7b8; outline-offset: 3px; }
+    button:disabled { cursor: wait; opacity: .6; }
+    [hidden] { display: none !important; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .loader { animation: none; } }
+    @media (max-width: 480px) { main { padding: 28px; } h1 { font-size: 29px; } }
+  </style>
+  <script src="startup.js" defer></script>
+</head>
+<body>
+  <main aria-labelledby="startup-title">
+    <div class="brand"><span aria-hidden="true">IT</span>InternTrack</div>
+    <div aria-live="polite" aria-atomic="true">
+      <h1 id="startup-title">Opening your workspace</h1>
+      <div class="loader" id="loader" aria-hidden="true"></div>
+      <p id="message">Starting the local service and checking your database. The first launch may take up to a minute.</p>
+      <span class="code" id="error-code" hidden></span>
+    </div>
+    <section class="details" id="details" hidden aria-label="Startup help">
+      <p>Your account and application records are stored separately on this computer. Retrying restarts the local service; it does not reset your workspace.</p>
+      <p>If this keeps happening, include the error code above when reporting the issue. Closing the window keeps InternTrack in the tray; choose Quit to stop it fully.</p>
+    </section>
+    <div class="actions" id="actions" hidden>
+      <button type="button" class="primary" id="retry">Retry startup</button>
+      <button type="button" id="quit">Quit InternTrack</button>
+    </div>
+    <p id="action-error" role="alert" hidden></p>
+  </main>
+</body>
 </html>
