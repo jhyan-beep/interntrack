@@ -1,0 +1,3 @@
+# CI-only tooling; not part of the desktop application's runtime dependencies.
+selenium>=4.29,<5.0
+psutil>=7.0,<8.0

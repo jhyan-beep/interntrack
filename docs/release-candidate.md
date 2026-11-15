@@ -33,6 +33,14 @@ The Windows workflow validates the version in Python, Tauri, Cargo, and the desk
 
 The smoke harness uses a Python interpreter, but the application process is the installed standalone executable and cannot find Python on PATH. The migration fixture uses the actual older schema, rather than a second historical installer. These checks verify a hosted-runner silent install and schema/recovery lifecycle; clean-machine graphical installation, cross-version installer upgrades, and native notifications still require the manual gates below.
 
+### Installed desktop window checks
+
+The installer check also runs the installed Tauri launcher through Microsoft Edge WebDriver and its real WebView2 window. The CI-only Python harness uses Selenium and psutil; neither is an application runtime dependency. It refuses to run outside a GitHub-hosted Windows runner, requires the launcher and diagnostics paths to be inside RUNNER_TEMP, and uses only fictional account data. The API/launcher files remain the installed standalone executables. Automation is enabled only in the test driver's child environment, with no test commands or bypasses added to the application.
+
+The harness checks the occupied-port error page and its rendered Quit button; opening the bundled React sign-in page from the shell's own ready API; graceful shutdown of the frozen API tree; the real recovery page after API termination; rendered Retry starting a fresh service while preserving a fictional session and record; and process cleanup after abrupt shell termination. It saves screenshots and driver logs to the **InternTrack-Desktop-Smoke** artifact, including failure screenshots when the driver is available. The diagnostics expire after 14 days. A failed window check blocks the candidate installer upload.
+
+These hosted-runner checks supplement the manual gates. They do not verify tray interaction, native notifications, all timeout cases, or cross-version installer upgrades. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
+
 ## Candidate download
 
 Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.2**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
