@@ -14,7 +14,7 @@ This candidate consolidates the web and desktop work for a controlled Windows be
 
 The standard CI runs PostgreSQL migrations, migration drift checks, pytest, the production frontend build, production Compose validation, and the non-root Docker image build.
 
-The Windows workflow validates the version in Python, Tauri, Cargo, and the desktop package, builds the frozen API and NSIS installer, then runs the frozen executable in an isolated temporary workspace with only Windows system directories on its PATH. The smoke test exercises:
+The Windows workflow validates the version in Python, Tauri, Cargo, and the desktop package, builds the frozen API and NSIS installer, and silently installs it into a generated directory on a disposable GitHub-hosted Windows runner. It verifies the installed launcher, API and uninstaller, exercises the installed API with only Windows system directories on its PATH, then silently uninstalls the package. The installer script refuses to run on ordinary local machines or self-hosted runners. The runtime smoke checks exercise:
 
 - Bundled frontend delivery and the exact candidate version.
 - Account creation and session authentication.
@@ -22,8 +22,10 @@ The Windows workflow validates the version in Python, Tauri, Cargo, and the desk
 - Deadline and next-action reminder selection and acknowledgement.
 - Portable backup replacement.
 - Process restart with session, application, and reminder history persistence.
+- Migration of an Alembic revision 20261107_0005 fixture with two accounts, retaining their data and creating a verified pre-upgrade snapshot.
+- Password-confirmed recovery staging, cancellation, restart application, and rollback to the automatic pre-restore snapshot.
 
-The smoke harness uses a Python interpreter, but the application process is the standalone executable and cannot find Python on PATH. This is a packaging check, not a claim that a clean-machine graphical install or native notification has already been tested.
+The smoke harness uses a Python interpreter, but the application process is the installed standalone executable and cannot find Python on PATH. The migration fixture uses the actual older schema, rather than a second historical installer. These checks verify a hosted-runner silent install and schema/recovery lifecycle; clean-machine graphical installation, cross-version installer upgrades, and native notifications still require the manual gates below.
 
 ## Candidate download
 

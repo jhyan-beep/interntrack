@@ -29,6 +29,8 @@ The tag starts the **Desktop Release** workflow. It verifies the tag/version mat
 
 ## Release review
 
+Both desktop workflows first run the CI-only silent installer check. It installs into a generated RUNNER_TEMP directory, exercises the installed API plus migration and reversible recovery fixtures, and uninstalls the application. The helper accepts only GitHub-hosted Windows runners. See [NSIS command-line options](https://nsis.sourceforge.io/Docs/Chapter3.html) and [GitHub runner variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables) for the installation flags and host checks.
+
 Before publishing the draft:
 
 1. Download the release artifact on a clean Windows machine.
