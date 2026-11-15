@@ -108,6 +108,9 @@ def desktop_session(launcher: Path, edge_driver: Path, output: Path, name: str):
     except Exception:
         if driver is not None:
             try:
+                (output / f"{name}-failure.txt").write_text(
+                    f"URL: {driver.current_url}\n\n{driver.page_source}", encoding="utf-8",
+                )
                 driver.save_screenshot(str(output / f"{name}-failure.png"))
             except WebDriverException:
                 pass

@@ -1,4 +1,4 @@
-# InternTrack 0.2.0-rc.2
+# InternTrack 0.2.0-rc.3
 
 This candidate consolidates the web and desktop work for a controlled Windows beta. It is not a signed stable release.
 
@@ -7,6 +7,8 @@ This candidate consolidates the web and desktop work for a controlled Windows be
 The shell opens the tracker only after the HTTP runtime reports the matching version and per-launch instance ID, and the database readiness endpoint succeeds. A listening TCP port alone is not sufficient. The instance ID is a launch correlation value, not an account credential.
 
 An occupied port, a missing or stopped service, or a one-minute readiness timeout displays a local error page with Retry and Quit controls. Startup errors also reveal a window after hidden autostart. Retry restarts the desktop process without resetting account data. Sidecar processes share a Windows process group so quitting or restarting the shell also stops the frozen API's child process.
+
+The recovery address is the explicit bundled asset URL. WebView2 may report `about:blank` during setup before its first navigation completes; saving that transient URL caused an early startup failure to navigate to a blank page instead of the error screen.
 
 ## Integration decisions
 
@@ -45,7 +47,7 @@ The Windows jobs currently use the hosted Windows Server 2022 image because the 
 
 ## Candidate download
 
-Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.2**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
+Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.3**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
 
 The signed release workflow remains gated on the signing credentials described in [desktop-release.md](desktop-release.md). Do not push a release tag merely to obtain an unsigned download.
 
