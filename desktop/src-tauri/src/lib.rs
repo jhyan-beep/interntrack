@@ -258,6 +258,7 @@ pub fn run() {
             let spawned = sidecar.args([
                 "--port".to_string(), API_PORT.to_string(),
                 "--data-dir".to_string(), data_directory.to_string_lossy().to_string(),
+                "--parent-pid".to_string(), std::process::id().to_string(),
             ])
                 .env("DESKTOP_INSTANCE_ID", &instance_id)
                 .set_process_group(true)

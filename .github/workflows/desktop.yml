@@ -62,6 +62,9 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir desktop install --frozen-lockfile
 
+      - name: Test Windows parent lifetime monitoring
+        run: python -m pytest tests/test_desktop_process.py -q
+
       - name: Build Python API sidecar
         shell: pwsh
         run: ./desktop/scripts/build_sidecar.ps1 -SkipFrontendInstall

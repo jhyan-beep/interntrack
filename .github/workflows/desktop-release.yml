@@ -106,6 +106,9 @@ jobs:
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "config_path=$configPath"
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "certificate_path=$certificatePath"
 
+      - name: Test Windows parent lifetime monitoring
+        run: python -m pytest tests/test_desktop_process.py -q
+
       - name: Build Python API sidecar
         shell: pwsh
         run: ./desktop/scripts/build_sidecar.ps1 -SkipFrontendInstall

@@ -114,6 +114,11 @@ def desktop_session(launcher: Path, edge_driver: Path, output: Path, name: str):
                 driver.save_screenshot(str(output / f"{name}-failure.png"))
             except WebDriverException:
                 pass
+        # Process ownership is useful even when a restarted app has already
+        # disconnected the original WebDriver session.
+        owners = installed_processes(launcher)
+        evidence = [{"pid": app.pid, "children": [child.pid for child in app.children(recursive=True)]} for app in owners]
+        (output / f"{name}-processes.txt").write_text(str(evidence), encoding="utf-8")
         raise
     finally:
         # Cleanup is restricted to this test's uniquely installed executable.
@@ -245,9 +250,16 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
         # A shell crash must also close its Windows job and terminate API children.
         restarted_children = api_children(restarted, sidecar)
         require(restarted_children, "Restarted API is outside the shell's process group")
+        # Retain handles before killing the owner, so PID reuse cannot satisfy
+        # the test and cleanup still knows these children after reparenting.
         restarted.kill()
         restarted.wait(timeout=15)
-        eventually(lambda: stopped(restarted_children) and port_free(), "Shell termination orphaned frozen API children")
+        try:
+            eventually(lambda: stopped(restarted_children) and port_free(), "Shell termination orphaned frozen API children")
+        finally:
+            for process in restarted_children:
+                if process.is_running():
+                    process.kill()
     print("PASS: abrupt shell termination also stops its frozen API children")
 
 

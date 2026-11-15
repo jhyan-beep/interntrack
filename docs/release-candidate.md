@@ -10,6 +10,8 @@ An occupied port, a missing or stopped service, or a one-minute readiness timeou
 
 The recovery address is the explicit bundled asset URL. WebView2 may report `about:blank` during setup before its first navigation completes; saving that transient URL caused an early startup failure to navigate to a blank page instead of the error screen.
 
+The shell also passes its PID to the frozen API. A Windows monitor holds a synchronization-only process handle and stops the API worker if that shell exits unexpectedly, allowing the PyInstaller bootloader to exit as well. This covers abrupt process termination, where Rust destructors and graceful exit handlers cannot run. Manual standalone API launches omit the parent PID and retain their normal lifetime.
+
 ## Integration decisions
 
 - PRs #3–#28 form one continuous ancestry chain from main through the React dashboard, authentication, desktop shell, backups, email integrations, and calendar export. The candidate retains all those commits and their history.
