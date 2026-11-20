@@ -3,6 +3,7 @@
 import argparse
 import os
 import socket
+import subprocess
 import time
 import uuid
 from contextlib import contextmanager
@@ -11,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from smoke_sidecar import Client, require
+from smoke_window import WindowsWindow
 
 
 API_URL = "http://127.0.0.1:8765"
@@ -79,25 +81,32 @@ def port_free() -> bool:
     return True
 
 
-@contextmanager
-def desktop_session(launcher: Path, edge_driver: Path, output: Path, name: str):
-    # Import optional tooling only after the hosted-runner/path guards have run.
-    from selenium import webdriver
-    from selenium.common.exceptions import WebDriverException
-    from selenium.webdriver.edge.options import Options
-    from selenium.webdriver.edge.service import Service
-
+def desktop_test_environment() -> dict[str, str]:
     environment = os.environ.copy()
     for key in list(environment):
         if key.startswith(("WINDOWS_CERTIFICATE", "WINDOWS_TIMESTAMP", "TAURI_SIGNING")) or key in (
             "OPENAI_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "MICROSOFT_OAUTH_CLIENT_ID", "GH_TOKEN", "GITHUB_TOKEN",
         ):
             environment.pop(key)
+    return environment
+
+
+@contextmanager
+def desktop_session(launcher: Path, edge_driver: Path, output: Path, name: str, *, start_hidden: bool = False):
+    # Import optional tooling only after the hosted-runner/path guards have run.
+    from selenium import webdriver
+    from selenium.common.exceptions import WebDriverException
+    from selenium.webdriver.edge.options import Options
+    from selenium.webdriver.edge.service import Service
+
+    environment = desktop_test_environment()
     environment["TAURI_WEBVIEW_AUTOMATION"] = "true"
     options = Options()
     options.use_webview = True
     options.binary_location = str(launcher)
     options.page_load_strategy = "eager"
+    if start_hidden:
+        options.add_argument("--hidden")
     service = Service(executable_path=str(edge_driver), log_output=str(output / f"{name}-driver.log"), env=environment)
     driver = None
     try:
@@ -163,6 +172,22 @@ def ready_runtime(client: Client, version: str, previous_instance=None):
         return False
 
 
+def reopen_shell(launcher: Path, window: WindowsWindow, handle: int, client: Client, instance_id: str) -> None:
+    subprocess.run(
+        [str(launcher)],
+        cwd=launcher.parent,
+        env=desktop_test_environment(),
+        creationflags=subprocess.CREATE_NO_WINDOW,
+        check=True,
+        timeout=15,
+    )
+    eventually(lambda: window.visibility(handle) is True, "A second launch did not show the original window", timeout=15)
+    require([process.pid for process in installed_processes(launcher)] == [window.owner_pid],
+            "A second launch did not reuse the original desktop process")
+    require(client.json("/runtime")["desktop_instance_id"] == instance_id,
+            "A second launch replaced the local API instance")
+
+
 def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None:
     import psutil
     from selenium.common.exceptions import WebDriverException
@@ -212,6 +237,17 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
             "application_date": date.today().isoformat(),
         })
 
+        window = WindowsWindow(app.pid, "InternTrack")
+        handle = eventually(window.find, "Could not find the installed program's main Windows window")
+        require(window.visibility(handle) is True, "The normal desktop window was never visible")
+        window.request_close(handle)
+        eventually(lambda: window.visibility(handle) is False, "Closing should hide the window while keeping it alive", timeout=15)
+        require(client.json("/health/ready")["status"] == "ready", "Closing the desktop window stopped the local API")
+        require(client.json(f"/applications/{record['id']}")["id"] == record["id"], "The local workspace is unavailable with the window closed")
+        reopen_shell(launcher, window, handle, client, runtime["desktop_instance_id"])
+        require(driver.save_screenshot(str(output / "reopened.png")), "Could not capture the reopened window")
+        print("PASS: Windows close hides the window and keeps the workspace ready; launching again reopens the same window and API")
+
         # The Quit command is bundled-page-only. Navigate to that real origin to
         # test graceful shutdown while the API is alive; the earlier test clicks
         # the rendered button. No test-only commands are added to the app.
@@ -223,10 +259,15 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
         eventually(lambda: stopped([app, *children]) and port_free(), "Quit left a frozen API process or occupied port")
     print("PASS: installed window loads its own frontend; graceful Quit stops the frozen API tree")
 
-    with desktop_session(launcher, edge_driver, output, "service-exit") as driver:
+    with desktop_session(launcher, edge_driver, output, "service-exit", start_hidden=True) as driver:
         WebDriverWait(driver, 75).until(lambda current: urlsplit(current.current_url).netloc == "127.0.0.1:8765")
         before = eventually(lambda: ready_runtime(client, version), "Second desktop start was not ready")
         app = installed_processes(launcher)[0]
+        window = WindowsWindow(app.pid, "InternTrack")
+        handle = eventually(window.find, "Background launch did not create its main Windows window")
+        require(window.visibility(handle) is False, "The --hidden launch showed a window after becoming ready")
+        reopen_shell(launcher, window, handle, client, before["desktop_instance_id"])
+        print("PASS: --hidden launch keeps the window hidden with a ready API until the original window is reopened")
         children = api_children(app, sidecar)
         owned_ids = {process.pid for process in children}
         listeners = [connection for connection in psutil.net_connections(kind="tcp")

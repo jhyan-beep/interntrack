@@ -43,7 +43,9 @@ The installer check also runs the installed Tauri launcher through Microsoft Edg
 
 The harness checks the occupied-port error page and its rendered Quit button; opening the bundled React sign-in page from the shell's own ready API; graceful shutdown of the frozen API tree; the real recovery page after API termination; rendered Retry starting a fresh service while preserving a fictional session and record; and process cleanup after abrupt shell termination. It saves screenshots and driver logs to the **InternTrack-Desktop-Smoke** artifact, including failure screenshots when the driver is available. The diagnostics expire after 14 days. A failed window check blocks the candidate installer upload.
 
-These hosted-runner checks supplement the manual gates. They do not verify tray interaction, native notifications, all timeout cases, or cross-version installer upgrades. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
+The window checks also send a Windows close request to the installed launcher. They verify that the original window is hidden, the local workspace remains available, and launching the program again brings back the same window and API. A separate launch with `--hidden` verifies that the API becomes ready while the window stays hidden and the same window can reopen. The production app uses this flag when starting at Windows sign-in.
+
+Tray icon and menu interactions, actual Windows sign-in, native notifications, and all timeout cases still need manual acceptance. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
 
 ### In-place installer upgrade
 
