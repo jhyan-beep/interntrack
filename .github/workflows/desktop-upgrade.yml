@@ -1,0 +1,98 @@
+name: Windows Desktop Upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      previous_artifact:
+        description: Artifact ID of the earlier Windows Desktop installer
+        required: true
+        type: string
+      candidate_artifact:
+        description: Artifact ID of the new Windows Desktop installer
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-upgrade.yml"
+      - "desktop/scripts/smoke_upgrade.py"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  upgrade:
+    # Use the same WebView2 test image as Windows Desktop.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-desktop-test.txt
+
+      - name: Download and verify the two installers
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_ID: ${{ inputs.previous_artifact || '14146724777' }}
+          CANDIDATE_ID: ${{ inputs.candidate_artifact || '14153478444' }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }
+          $api = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions"
+          $source = Join-Path $env:RUNNER_TEMP "interntrack-upgrade-installers"
+
+          function Get-Installer([string]$Id, [string]$Label) {
+            if ($Id -notmatch '\A[0-9]+\z') { throw "Invalid $Label artifact ID." }
+            $artifact = Invoke-RestMethod -Uri "$api/artifacts/$Id" -Headers $headers -TimeoutSec 45
+            $run = Invoke-RestMethod -Uri "$api/runs/$($artifact.workflow_run.id)" -Headers $headers -TimeoutSec 45
+            if ($run.conclusion -ne "success" -or $run.path -ne ".github/workflows/desktop.yml" -or
+                $run.head_repository.full_name -ne $env:GITHUB_REPOSITORY -or
+                $run.head_sha -ne $artifact.workflow_run.head_sha -or
+                $artifact.expired -or $artifact.name -notmatch '\AInternTrack-Windows-x64-(?<Version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\z') {
+              throw "Expected a live installer artifact from a successful Windows Desktop run in this repository ($Label, $Id)."
+            }
+            $version = [System.Management.Automation.SemanticVersion]$Matches.Version
+            $directory = Join-Path $source $Label
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            $archive = Join-Path $directory "installer.zip"
+            Invoke-WebRequest -Uri "$api/artifacts/$Id/zip" -Headers $headers -OutFile $archive -TimeoutSec 90
+            $sha256 = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+            if ("sha256:$sha256" -ne $artifact.digest) { throw "Artifact digest mismatch for $Label ($Id)." }
+            Expand-Archive -LiteralPath $archive -DestinationPath $directory
+            $installers = @(Get-ChildItem -LiteralPath $directory -File -Filter "*-setup.exe")
+            if ($installers.Count -ne 1) { throw "Expected one NSIS executable in $Label ($Id)." }
+            Write-Host "$Label $version came from run $($run.id) at $($run.head_sha)."
+            return @{ path = $installers[0].FullName; version = $version }
+          }
+
+          $previous = Get-Installer $env:PREVIOUS_ID "previous"
+          $candidate = Get-Installer $env:CANDIDATE_ID "candidate"
+          if ($previous.version -ge $candidate.version) { throw "The candidate must be newer than the previous installer." }
+          "PREVIOUS_INSTALLER=$($previous.path)" >> $env:GITHUB_ENV
+          "PREVIOUS_VERSION=$($previous.version)" >> $env:GITHUB_ENV
+          "CANDIDATE_INSTALLER=$($candidate.path)" >> $env:GITHUB_ENV
+          "CANDIDATE_VERSION=$($candidate.version)" >> $env:GITHUB_ENV
+
+      - name: Verify in-place upgrade with existing local accounts
+        shell: pwsh
+        run: |
+          $edgeDriver = ./desktop/scripts/resolve_webview_driver.ps1
+          python desktop/scripts/smoke_upgrade.py --previous $env:PREVIOUS_INSTALLER --previous-version $env:PREVIOUS_VERSION --candidate $env:CANDIDATE_INSTALLER --candidate-version $env:CANDIDATE_VERSION --edge-driver $edgeDriver
+
+      - name: Upload upgrade diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: InternTrack-Upgrade-Smoke
+          path: ${{ runner.temp }}/interntrack-upgrade-smoke/*
+          if-no-files-found: ignore
+          retention-days: 14

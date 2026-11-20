@@ -45,6 +45,12 @@ The harness checks the occupied-port error page and its rendered Quit button; op
 
 These hosted-runner checks supplement the manual gates. They do not verify tray interaction, native notifications, all timeout cases, or cross-version installer upgrades. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
 
+### In-place installer upgrade
+
+The separate [Windows Desktop Upgrade workflow](../.github/workflows/desktop-upgrade.yml) runs two real NSIS installers on a hosted Windows machine. It creates two local accounts in the previous version, upgrades the same installation, opens the new desktop window, and checks that both sessions, isolated application records, and reminder preferences survive. It also edits a preserved record and verifies that the upgraded application uninstalls. The browser screenshots and driver logs are available in the upgrade run.
+
+To repeat the check, run **Windows Desktop Upgrade** with the artifact IDs of two unexpired installers from successful **Windows Desktop** runs in this repository. Use the numeric ID at the end of each artifact link. Tests of changes to the upgrade workflow or harness use the recorded rc.2 and rc.3 artifacts. If they expire, refresh the defaults with a verified pair. Graphical upgrades and tray behavior on a consumer Windows machine remain part of manual acceptance.
+
 The Windows jobs currently use the hosted Windows Server 2022 image because the newer Server 2025 WebView2 automation session can fail before tests connect ([upstream runner report](https://github.com/actions/runner-images/issues/14738)). Driver setup detects the actual installed WebView2 version and reuses a matching driver, or downloads that version from Microsoft's WebDriver distribution. It does not downgrade or bundle a runtime in the application. A passing check on this runner does not complete acceptance on current consumer Windows/WebView2 releases.
 
 ## Candidate download
