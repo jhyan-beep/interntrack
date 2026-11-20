@@ -124,7 +124,10 @@ def verify_upgrade(args: argparse.Namespace) -> None:
                 saved = owner.json(f"/applications/{item['id']}", method="PATCH", body={"status": "interview"})
                 require(saved["status"] == "interview", "Upgraded workspace could not edit an existing application")
                 verify_account(other, other_state)
-            print(f"PASS: {args.previous_version} → {args.candidate_version} replaced the binaries in place and preserved both accounts, sessions, records, and reminder settings")
+            print(
+                f"PASS: upgrading from {args.previous_version} to {args.candidate_version} replaced both executables "
+                "and preserved both accounts, sessions, records, and reminder settings"
+            )
         finally:
             if uninstaller.is_file():
                 run_nsis(uninstaller, f"_?={install_dir}")
