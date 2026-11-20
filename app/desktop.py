@@ -15,6 +15,7 @@ from app.desktop_backups import (
     sqlite_database_needs_upgrade,
 )
 from app.desktop_secrets import DesktopSecretError, DesktopSecretStore
+from app.desktop_process import monitor_desktop_parent
 
 
 DEFAULT_PORT = 8765
@@ -108,11 +109,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the InternTrack desktop API")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--parent-pid", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    monitor_desktop_parent(args.parent_pid)
     data_directory = args.data_dir or default_data_directory()
     database_path = configure_desktop_environment(data_directory, args.port)
     restored_snapshot = apply_pending_restore(database_path)

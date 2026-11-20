@@ -191,7 +191,13 @@ pub fn run() {
             std::env::remove_var("INTERNTRACK_SHOW_ON_RESTART");
             let start_hidden = !show_on_restart && std::env::args().any(|argument| argument == "--hidden");
             let window = app.get_webview_window("main").ok_or("The main window is missing.")?;
-            let startup_url = window.url()?;
+            // WebView2 can still report about:blank during setup. Recovery must
+            // use our bundled page, not that transient pre-navigation address.
+            let startup_url = Url::parse(if cfg!(windows) {
+                "http://tauri.localhost/"
+            } else {
+                "tauri://localhost/"
+            })?;
             app.manage(ApiSidecar {
                 child: Mutex::new(None),
                 status: Mutex::new(StartupStatus::starting()),
@@ -252,6 +258,7 @@ pub fn run() {
             let spawned = sidecar.args([
                 "--port".to_string(), API_PORT.to_string(),
                 "--data-dir".to_string(), data_directory.to_string_lossy().to_string(),
+                "--parent-pid".to_string(), std::process::id().to_string(),
             ])
                 .env("DESKTOP_INSTANCE_ID", &instance_id)
                 .set_process_group(true)

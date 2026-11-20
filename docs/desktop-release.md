@@ -29,7 +29,7 @@ The tag starts the **Desktop Release** workflow. It verifies the tag/version mat
 
 ## Release review
 
-Both desktop workflows first run the CI-only silent installer check. It installs into a generated RUNNER_TEMP directory, exercises the installed API plus migration and reversible recovery fixtures, and uninstalls the application. The helper accepts only GitHub-hosted Windows runners. See [NSIS command-line options](https://nsis.sourceforge.io/Docs/Chapter3.html) and [GitHub runner variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables) for the installation flags and host checks.
+Both desktop workflows first run the CI-only silent installer check. It installs into a generated RUNNER_TEMP directory, exercises the installed API plus migration and reversible recovery fixtures, and drives the installed WebView2 window through startup failures, Retry, and process cleanup before uninstalling. Window screenshots and driver logs are retained for 14 days in a separate diagnostics artifact, including on failures. The helpers accept only GitHub-hosted Windows runners. See [NSIS command-line options](https://nsis.sourceforge.io/Docs/Chapter3.html) and [GitHub runner variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables) for the installation flags and host checks.
 
 Before publishing the draft:
 
@@ -43,5 +43,5 @@ The application does not check for remote updates yet. Signed updater artifacts 
 
 ## Current candidate
 
-The current candidate is `0.2.0-rc.2`. See [release-candidate.md](release-candidate.md) for integration decisions, automated packaging checks, candidate download instructions, and the pending manual release gates.
+The current candidate is `0.2.0-rc.3`. See [release-candidate.md](release-candidate.md) for integration decisions, automated packaging checks, candidate download instructions, and the pending manual release gates.
 

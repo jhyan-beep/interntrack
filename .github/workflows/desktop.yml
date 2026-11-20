@@ -14,7 +14,8 @@ on:
 
 jobs:
   build-windows-installer:
-    runs-on: windows-latest
+    # WebView2 automation currently regresses on Server 2025 (runner-images#14738).
+    runs-on: windows-2022
 
     steps:
       - name: Check out repository
@@ -57,9 +58,12 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-desktop.txt
+          pip install -r requirements.txt -r requirements-desktop.txt -r requirements-desktop-test.txt
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir desktop install --frozen-lockfile
+
+      - name: Test Windows parent lifetime monitoring
+        run: python -m pytest tests/test_desktop_process.py -q
 
       - name: Build Python API sidecar
         shell: pwsh
@@ -72,11 +76,21 @@ jobs:
         run: pnpm --dir desktop exec tauri build --target x86_64-pc-windows-msvc
 
       - name: Verify silent installer and installed runtime
+        timeout-minutes: 8
         shell: pwsh
         run: |
           $installers = @(Get-ChildItem -LiteralPath "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" -Filter "*-setup.exe" -File)
           if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer." }
           ./desktop/scripts/smoke_installer.ps1 -InstallerPath $installers[0].FullName -ExpectedVersion "${{ steps.version.outputs.version }}"
+
+      - name: Upload desktop window diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: InternTrack-Desktop-Smoke-${{ github.run_id }}
+          path: ${{ runner.temp }}/interntrack-desktop-smoke/*
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
