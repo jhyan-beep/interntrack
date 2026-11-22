@@ -224,7 +224,7 @@ def verify_notifications(driver, client: Client, email: str, password: str, reco
     require(driver.save_screenshot(str(output / "notification-test.png")), "Could not capture the notification test result")
     print("PASS: the settings button requests a native test notification without changing reminder preferences or the queue")
 
-    reminders = driver.find_element(By.CSS_SELECTOR, "form.reminder-settings")
+    reminders = driver.find_element(*test_button).find_element(By.XPATH, "./ancestor::form[1]")
     enabled = reminders.find_element(By.CSS_SELECTOR, 'input[type="checkbox"]')
     if not enabled.is_selected():
         enabled.click()
