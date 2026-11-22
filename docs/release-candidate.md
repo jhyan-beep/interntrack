@@ -1,4 +1,4 @@
-# InternTrack 0.2.0-rc.3
+# InternTrack 0.2.0-rc.4
 
 This candidate consolidates the web and desktop work for a controlled Windows beta. It is not a signed stable release.
 
@@ -47,6 +47,8 @@ The window checks also send a Windows close request to the installed launcher. T
 
 Tray icon and menu interactions, actual Windows sign-in, native notifications, and all timeout cases still need manual acceptance. See [Microsoft's WebView2 automation guide](https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/webdriver) and [Tauri's WebDriver setup](https://tauri.app/develop/tests/webdriver/manual-setup/) for the automation interface and matching Edge WebDriver requirement.
 
+The installed app test also signs in and uses **Send test notification**. It checks that the desktop notification command accepts the test request and that reminder preferences and queued reminders stay intact. The same run submits a due deadline and next action, then confirms the app acknowledges both. Windows controls whether a banner is shown, so assess visible delivery on a consumer Windows machine.
+
 ### In-place installer upgrade
 
 The separate [Windows Desktop Upgrade workflow](../.github/workflows/desktop-upgrade.yml) runs two real NSIS installers on a hosted Windows machine. It creates two local accounts in the previous version, upgrades the same installation, opens the new desktop window, and checks that both sessions, isolated application records, and reminder preferences survive. It also edits a preserved record and verifies that the upgraded application uninstalls. The browser screenshots and driver logs are available in the upgrade run.
@@ -57,7 +59,7 @@ The Windows jobs currently use the hosted Windows Server 2022 image because the 
 
 ## Candidate download
 
-Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.3**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
+Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.4**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
 
 The signed release workflow remains gated on the signing credentials described in [desktop-release.md](desktop-release.md). Do not push a release tag merely to obtain an unsigned download.
 
@@ -70,7 +72,7 @@ Record the machine, Windows version, installer checksum, result, and any issue f
 - [ ] Occupy port 8765 before launch and verify the error page, then free the port and use Retry. Check that account records survive.
 - [ ] Test a failed API start, readiness timeout, and API termination after opening. Verify the visible error, Retry, and Quit, including hidden autostart. Browser fixtures and HTTP unit tests do not complete this native-shell gate.
 - [ ] Close to tray, reopen, and verify optional start-with-Windows behavior.
-- [ ] Allow native notifications and verify an actual deadline and next-action notification.
+- [ ] Send a test notification and verify it appears in Windows. Then verify an actual deadline and next-action notification.
 - [ ] Upgrade an earlier installed version and verify accounts, records, settings, and recovery points survive.
 - [ ] Exercise recovery staging, cancel, restart, and restoration through the installed UI.
 - [ ] Complete real AI, Gmail, and Outlook workflows using tester-owned credentials; review authorization denial, expiration, and disconnect.

@@ -1,11 +1,11 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
   isEnabled as isAutostartEnabled
 } from "@tauri-apps/plugin-autostart";
-import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification";
 import {
   acknowledgeDesktopReminder,
   ApiError,
@@ -118,6 +118,7 @@ function downloadSupportReport(runtime: RuntimeInfo): void {
 }
 
 async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Promise<boolean> {
+  if (!isTauri()) return false;
   try {
     if (await isPermissionGranted()) return true;
     if (!requestIfNeeded) return false;
@@ -125,6 +126,12 @@ async function ensureDesktopNotificationPermission(requestIfNeeded: boolean): Pr
   } catch {
     return false;
   }
+}
+
+function sendDesktopNotification(title: string, body: string): Promise<void> {
+  // The plugin's JS convenience function returns void. Await the native command
+  // so an IPC error leaves a due reminder queued for a later attempt.
+  return invoke<void>("plugin:notification|notify", { options: { title, body } });
 }
 
 function desktopReminderTitle(kind: "deadline" | "next_step", daysRemaining: number): string {
@@ -149,12 +156,12 @@ async function showDueDesktopReminders(requestPermissionIfNeeded = false): Promi
   desktopReminderDeliveryInFlight = (async () => {
     const { items } = await getDueDesktopReminders();
     for (const reminder of items) {
-      await sendNotification({
-        title: desktopReminderTitle(reminder.kind, reminder.days_remaining),
-        body: reminder.kind === "next_step"
+      await sendDesktopNotification(
+        desktopReminderTitle(reminder.kind, reminder.days_remaining),
+        reminder.kind === "next_step"
           ? `${reminder.company} · ${reminder.message}`
           : `${reminder.company} · ${reminder.role}`
-      });
+      );
       await acknowledgeDesktopReminder(reminder.application_id, reminder.kind);
     }
   })();
@@ -499,6 +506,8 @@ function AccountDialog({
   const [reminders, setReminders] = useState<ReminderSettings | null>(null);
   const [reminderBusy, setReminderBusy] = useState(true);
   const [reminderSaved, setReminderSaved] = useState(false);
+  const [notificationTestBusy, setNotificationTestBusy] = useState(false);
+  const [notificationTestStatus, setNotificationTestStatus] = useState<{ message: string; failed: boolean } | null>(null);
   const [startAtLogin, setStartAtLogin] = useState(false);
   const [autostartBusy, setAutostartBusy] = useState(desktopMode);
   const [autostartSaved, setAutostartSaved] = useState(false);
@@ -646,12 +655,40 @@ function AccountDialog({
       setReminders(nextReminders);
       setReminderSaved(true);
       if (desktopMode && nextReminders.deadline_reminders_enabled) {
-        await showDueDesktopReminders();
+        void showDueDesktopReminders().catch(() => {
+          // A failed request remains queued for the next reminder check.
+        });
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save reminder settings.");
     } finally {
       setReminderBusy(false);
+    }
+  }
+
+  async function handleTestNotification() {
+    setNotificationTestBusy(true);
+    setNotificationTestStatus(null);
+    try {
+      if (!(await ensureDesktopNotificationPermission(true))) {
+        setNotificationTestStatus({
+          message: "Notification access is unavailable. Check Windows notification settings for InternTrack.",
+          failed: true
+        });
+        return;
+      }
+      await sendDesktopNotification("InternTrack test notification", "This is a test of your local reminders.");
+      setNotificationTestStatus({
+        message: "Test notification requested. Check Windows Notification Center.",
+        failed: false
+      });
+    } catch {
+      setNotificationTestStatus({
+        message: "InternTrack could not request a notification. Try again or check Windows notification settings.",
+        failed: true
+      });
+    } finally {
+      setNotificationTestBusy(false);
     }
   }
 
@@ -1060,7 +1097,14 @@ function AccountDialog({
             </label>
             <label className="reminder-days">Remind me before the deadline<select value={reminders.deadline_reminder_days} disabled={!reminders.deadline_reminders_enabled} onChange={(event) => { setReminderSaved(false); setReminders({ ...reminders, deadline_reminder_days: Number(event.target.value) }); }}><option value={1}>1 day before</option><option value={3}>3 days before</option><option value={7}>7 days before</option><option value={14}>14 days before</option></select></label>
             <p className="reminder-timezone">Dates use your browser time zone: <strong>{reminders.reminder_timezone}</strong></p>
-            <div className="reminder-save"><span aria-live="polite">{reminderSaved ? "Saved" : ""}</span><button className="button secondary compact" type="submit" disabled={reminderBusy}>{reminderBusy ? "Saving…" : "Save reminders"}</button></div>
+            <div className="reminder-save">
+              <span aria-live="polite">{reminderSaved ? "Saved" : ""}</span>
+              {desktopMode && isTauri() && <button className="button secondary compact" type="button" disabled={notificationTestBusy || reminderBusy} onClick={() => void handleTestNotification()}>
+                {notificationTestBusy ? "Sending test…" : "Send test notification"}
+              </button>}
+              <button className="button secondary compact" type="submit" disabled={reminderBusy || notificationTestBusy}>{reminderBusy ? "Saving…" : "Save reminders"}</button>
+            </div>
+            {notificationTestStatus && <p className="notification-test-feedback" role={notificationTestStatus.failed ? "alert" : "status"}>{notificationTestStatus.message}</p>}
           </>}
         </form>}
         {!confirmingDelete && <section className="reminder-settings about-settings">

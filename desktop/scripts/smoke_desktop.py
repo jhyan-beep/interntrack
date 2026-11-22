@@ -188,6 +188,53 @@ def reopen_shell(launcher: Path, window: WindowsWindow, handle: int, client: Cli
             "A second launch replaced the local API instance")
 
 
+def verify_notifications(driver, client: Client, email: str, password: str, record: dict, output: Path) -> None:
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support import expected_conditions as conditions
+    from selenium.webdriver.support.ui import WebDriverWait
+
+    wait = WebDriverWait(driver, 20)
+    driver.find_element(By.CSS_SELECTOR, 'input[type="email"]').send_keys(email)
+    driver.find_element(By.CSS_SELECTOR, 'input[type="password"]').send_keys(password)
+    driver.find_element(By.CSS_SELECTOR, 'form button[type="submit"]').click()
+    wait.until(conditions.element_to_be_clickable((By.CSS_SELECTOR, '[aria-label="Open account settings"]'))).click()
+    test_button = (By.XPATH, '//button[normalize-space()="Send test notification"]')
+    wait.until(conditions.element_to_be_clickable(test_button))
+
+    # Seed the queue after sign-in, so the dashboard's startup scan cannot
+    # deliver the fixtures before the test button is exercised.
+    record_path = f"/applications/{record['id']}"
+    client.json(record_path, method="PATCH", body={
+        "deadline": record["application_date"],
+        "next_step": "Prepare for the interview",
+        "next_step_date": record["application_date"],
+    })
+    settings = client.json("/reminders/settings", method="PATCH", body={"deadline_reminders_enabled": True})
+    due_path = "/desktop/reminders/due"
+    due_before = client.json(due_path)["items"]
+    require({item["kind"] for item in due_before} == {"deadline", "next_step"}, "Expected both kinds of due reminder")
+
+    driver.find_element(*test_button).click()
+    wait.until(conditions.text_to_be_present_in_element(
+        (By.CSS_SELECTOR, '.notification-test-feedback[role="status"]'),
+        "Test notification requested.",
+    ))
+    require(client.json("/reminders/settings") == settings, "The notification test changed reminder preferences")
+    require(client.json(due_path)["items"] == due_before, "The notification test consumed real reminders")
+    require(driver.save_screenshot(str(output / "notification-test.png")), "Could not capture the notification test result")
+    print("PASS: the settings button requests a native test notification without changing reminder preferences or the queue")
+
+    reminders = driver.find_element(By.CSS_SELECTOR, "form.reminder-settings")
+    enabled = reminders.find_element(By.CSS_SELECTOR, 'input[type="checkbox"]')
+    if not enabled.is_selected():
+        enabled.click()
+    reminders.find_element(By.CSS_SELECTOR, 'button[type="submit"]').click()
+    wait.until(lambda _: not client.json(due_path)["items"], "The two reminder requests were not acknowledged")
+    require(client.json("/reminders/settings")["deadline_reminders_enabled"], "Reminder settings did not stay enabled")
+    driver.find_element(By.CSS_SELECTOR, '[aria-label="Close account settings"]').click()
+    print("PASS: the installed app requests and acknowledges both due reminder kinds")
+
+
 def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None:
     import psutil
     from selenium.common.exceptions import WebDriverException
@@ -231,7 +278,8 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
 
         # Preserve a fictional account/session/record across the native Retry.
         email = f"native-{uuid.uuid4().hex}@example.com"
-        client.json("/auth/register", method="POST", expected=201, body={"email": email, "password": "NativeSmokePassword123!"})
+        password = "NativeSmokePassword123!"
+        client.json("/auth/register", method="POST", expected=201, body={"email": email, "password": password})
         record = client.json("/applications", method="POST", expected=201, body={
             "company": "Native Shell Smoke Co", "role": "SWE Intern", "status": "applied",
             "application_date": date.today().isoformat(),
@@ -247,6 +295,7 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
         reopen_shell(launcher, window, handle, client, runtime["desktop_instance_id"])
         require(driver.save_screenshot(str(output / "reopened.png")), "Could not capture the reopened window")
         print("PASS: Windows close hides the window and keeps the workspace ready; launching again reopens the same window and API")
+        verify_notifications(driver, client, email, password, record, output)
 
         # The Quit command is bundled-page-only. Navigate to that real origin to
         # test graceful shutdown while the API is alive; the earlier test clicks
