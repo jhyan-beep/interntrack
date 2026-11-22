@@ -258,8 +258,10 @@ tbody tr:hover { background: #fbfcff; }
 .reminder-days select { height: 42px; padding: 0 11px; border: 1px solid #d8dad8; border-radius: 10px; color: var(--ink); background: white; }
 .reminder-timezone { margin-top: 10px !important; }
 .reminder-timezone strong { color: #445163; }
-.reminder-save { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.reminder-save { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; }
 .reminder-save span { color: #287b4c; font-size: 12px; font-weight: 700; }
+.reminder-settings .notification-test-feedback { margin-top: 10px; }
+.notification-test-feedback[role="alert"] { color: #9f2424; }
 .recovery-empty { margin-top: 16px !important; padding: 12px; border-radius: 9px; background: #f1f4f7; }
 .recovery-list { margin-top: 15px; overflow: hidden; border: 1px solid #dfe3df; border-radius: 11px; background: white; }
 .recovery-list label { padding: 12px; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }

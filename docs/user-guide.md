@@ -24,7 +24,9 @@ Dates are calendar dates; a next-step date needs accompanying next-step text.
 
 ## Reminders and background behavior
 
-Open **Account settings → Local reminders**, enable notifications, and choose the deadline window. Notifications require Windows permission and InternTrack to be running. Closing the window leaves it in the system tray; choose **Quit** from the tray menu to stop it. **Start with Windows** is optional.
+In the installed desktop app, open **Account settings → Local reminders** and select **Send test notification**. Check the Windows banner or Notification Center for **InternTrack test notification**. If it is missing, check that notifications are enabled for InternTrack in Windows and review the Do not disturb setting. The test leaves your reminder preferences and pending reminders intact.
+
+To receive reminders, turn on **Windows notifications**, choose the deadline window, and select **Save reminders**. The app keeps checking while it runs in the tray. Use **Quit** from the tray menu to stop it. **Start with Windows** is optional.
 
 ## Export and protect your data
 
