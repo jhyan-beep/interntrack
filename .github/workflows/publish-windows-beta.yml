@@ -1,0 +1,82 @@
+name: Publish Windows Beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_id:
+        description: Installer artifact ID from a successful Windows Desktop run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: windows-beta-release
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify candidate and publish pre-release
+        env:
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]
+          version=$(python -c 'from app.version import APP_VERSION; print(APP_VERSION)')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]
+          tag="v$version"
+
+          artifact=$(gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID")
+          jq -e --arg name "InternTrack-Windows-x64-$version" \
+            '.name == $name and .expired == false' <<< "$artifact" > /dev/null
+          run_id=$(jq -er '.workflow_run.id' <<< "$artifact")
+          source_sha=$(jq -er '.workflow_run.head_sha' <<< "$artifact")
+          [[ "$run_id" =~ ^[0-9]+$ && "$source_sha" =~ ^[a-f0-9]{40}$ ]]
+          run=$(gh api "repos/$GH_REPO/actions/runs/$run_id")
+          jq -e --arg repo "$GH_REPO" --arg sha "$source_sha" \
+            '.conclusion == "success" and .path == ".github/workflows/desktop.yml"
+              and .head_repository.full_name == $repo and .head_sha == $sha' \
+            <<< "$run" > /dev/null
+
+          # Pull-request artifacts may come from a squash-merged branch. Compare build inputs.
+          git fetch --no-tags --depth=1 origin "$source_sha"
+          git diff --exit-code "$source_sha" HEAD -- app alembic frontend desktop \
+            requirements.txt requirements-desktop.txt requirements-desktop-test.txt \
+            docs/user-guide.md .github/workflows/desktop.yml ':(exclude)desktop/scripts/smoke_upgrade.py'
+
+          package="$RUNNER_TEMP/InternTrack-Windows-x64-$version-beta.zip"
+          gh api "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID/zip" > "$package"
+          digest=$(jq -er '.digest | sub("^sha256:"; "")' <<< "$artifact")
+          [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s  %s\n' "$digest" "$package" | sha256sum --check
+          unzip -tq "$package"
+
+          notes="$RUNNER_TEMP/interntrack-beta-notes.md"
+          cat > "$notes" <<EOF
+          InternTrack is a local-first internship tracker for Windows x64. Track applications, set reminders, and export records as CSV or calendar files. Your workspace is stored on your computer.
+
+          ## Install or upgrade
+
+          1. Download **$(basename "$package")** under **Assets** and extract it.
+          2. Open **START-HERE.txt** for the checksum and installation steps. The ZIP also contains the tester guide.
+          3. Before upgrading, export a portable backup from **Account settings → Portable backup** and quit InternTrack from the tray.
+
+          This is an **unsigned Windows beta**. If Windows blocks the installer, report the exact message.
+
+          Package SHA-256 is $digest.
+
+          [Report an issue]($GITHUB_SERVER_URL/$GH_REPO/issues/new?template=bug_report.yml) · [Windows installer verification]($GITHUB_SERVER_URL/$GH_REPO/actions/runs/$run_id)
+          EOF
+
+          gh release create "$tag" "$package" --target "$GITHUB_SHA" \
+            --title "InternTrack $version — Windows beta" --prerelease --latest=false --notes-file "$notes"
