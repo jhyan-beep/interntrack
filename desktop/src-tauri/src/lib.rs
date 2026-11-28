@@ -32,12 +32,25 @@ fn require_startup_window(window: &WebviewWindow, runtime: &ApiSidecar) -> Resul
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct StartupStatusReport {
+    #[serde(flatten)]
+    status: StartupStatus,
+    app_version: String,
+}
+
 #[tauri::command]
-fn desktop_startup_status(window: WebviewWindow, app_handle: tauri::AppHandle) -> Result<StartupStatus, String> {
+fn desktop_startup_status(
+    window: WebviewWindow,
+    app_handle: tauri::AppHandle,
+) -> Result<StartupStatusReport, String> {
     let runtime = app_handle.state::<ApiSidecar>();
     require_startup_window(&window, &runtime)?;
     let status = runtime.status.lock().map_err(|_| "Could not read startup status.")?;
-    Ok(status.clone())
+    Ok(StartupStatusReport {
+        status: status.clone(),
+        app_version: app_handle.package_info().version.to_string(),
+    })
 }
 
 #[tauri::command]
