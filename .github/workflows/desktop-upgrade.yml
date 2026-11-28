@@ -42,8 +42,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIOUS_ID: ${{ inputs.previous_artifact || '14153478444' }}
-          CANDIDATE_ID: ${{ inputs.candidate_artifact || '14747010572' }}
+          PREVIOUS_ID: ${{ inputs.previous_artifact || '15241152691' }}
+          CANDIDATE_ID: ${{ inputs.candidate_artifact || '15242531052' }}
         run: |
           $ErrorActionPreference = "Stop"
           $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json" }

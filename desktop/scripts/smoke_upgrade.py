@@ -6,7 +6,7 @@ import os
 import subprocess
 import tempfile
 from contextlib import contextmanager
-from datetime import date
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -57,6 +57,7 @@ def installed_workspace(launcher: Path, edge_driver: Path, output: Path, label: 
 
 
 def seed_account(client: Client, label: str, reminder_days: int):
+    today = datetime.now(timezone.utc).date()
     email = f"upgrade-{label}@example.com"
     account = client.json("/auth/register", method="POST", expected=201, body={
         "email": email,
@@ -66,11 +67,15 @@ def seed_account(client: Client, label: str, reminder_days: int):
         "company": f"Upgrade {label.title()} Company",
         "role": "SWE Intern",
         "status": "applied",
-        "application_date": date.today().isoformat(),
+        "application_date": today.isoformat(),
+        "deadline": (today + timedelta(days=2)).isoformat(),
+        "next_step": "Prepare for an interview",
+        "next_step_date": today.isoformat(),
     })
     settings = client.json("/reminders/settings", method="PATCH", body={
         "deadline_reminder_days": reminder_days,
         "deadline_reminders_enabled": True,
+        "reminder_timezone": "UTC",
     })
     return account, record, settings
 
@@ -82,6 +87,13 @@ def verify_account(client: Client, saved) -> None:
     records = client.json("/applications")
     require(records["total"] == 1 and records["items"] == [record], "Upgrade changed records or account isolation")
     require(client.json("/reminders/settings") == settings, "Upgrade changed the reminder settings")
+
+
+def verify_due_reminders(client: Client, application_id: int, *kinds: str) -> None:
+    due = client.json("/desktop/reminders/due")["items"]
+    actual = sorted((item["application_id"], item["kind"]) for item in due)
+    expected = sorted((application_id, kind) for kind in kinds)
+    require(actual == expected, f"Unexpected queued reminders for application {application_id}: {actual}")
 
 
 def verify_upgrade(args: argparse.Namespace) -> None:
@@ -105,11 +117,18 @@ def verify_upgrade(args: argparse.Namespace) -> None:
             require(launcher.is_file() and sidecar.is_file() and uninstaller.is_file(), "Previous installer did not install expected files")
             old_hashes = [sha256(path) for path in (launcher, sidecar)]
             other = Client(API_URL)
+            reminder_kinds = ("deadline", "next_step")
             with installed_workspace(launcher, edge_driver, output, "before", args.previous_version) as owner:
                 owner_state = seed_account(owner, "owner", 14)
                 other_state = seed_account(other, "other", 3)
                 verify_account(owner, owner_state)
                 verify_account(other, other_state)
+                owner_id, other_id = owner_state[1]["id"], other_state[1]["id"]
+                verify_due_reminders(owner, owner_id, *reminder_kinds)
+                for kind in reminder_kinds:
+                    owner.request(f"/desktop/reminders/{owner_id}/acknowledge?kind={kind}", method="POST", expected=204)
+                verify_due_reminders(owner, owner_id)
+                verify_due_reminders(other, other_id, *reminder_kinds)
             print(f"PASS: {args.previous_version} installed and created two local workspaces")
 
             # Let the upgrade find the existing installation through NSIS.
@@ -120,8 +139,10 @@ def verify_upgrade(args: argparse.Namespace) -> None:
             with installed_workspace(launcher, edge_driver, output, "after", args.candidate_version):
                 verify_account(owner, owner_state)
                 verify_account(other, other_state)
-                item = owner_state[1]
-                saved = owner.json(f"/applications/{item['id']}", method="PATCH", body={"status": "interview"})
+                verify_due_reminders(owner, owner_id)
+                verify_due_reminders(other, other_id, *reminder_kinds)
+                print("PASS: acknowledged reminders stay cleared and the other account's reminders stay queued after upgrade")
+                saved = owner.json(f"/applications/{owner_id}", method="PATCH", body={"status": "interview"})
                 require(saved["status"] == "interview", "Upgraded workspace could not edit an existing application")
                 verify_account(other, other_state)
             print(
