@@ -4,7 +4,7 @@ InternTrack is a responsive web application for tracking software engineering in
 
 **Live product site:** [interntrack-student-beta.alanyan-study.chatgpt.site](https://interntrack-student-beta.alanyan-study.chatgpt.site)
 
-> **Early beta:** The product site and source code are public, but there is not yet a signed stable installer for general distribution. Windows release builds remain draft-only until the signing and clean-machine checks in `docs/desktop-release.md` are complete.
+**Windows x64 beta:** Download the installer ZIP from [GitHub Releases](https://github.com/jhyan-beep/interntrack/releases). The public beta installer is unsigned. Stable distribution requires the signing and clean-machine checks in the [desktop release runbook](docs/desktop-release.md).
 
 **Current candidate:** `0.2.0-rc.5`. Read the [candidate status and acceptance checklist](docs/release-candidate.md) and the [desktop tester guide](docs/user-guide.md).
 

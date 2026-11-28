@@ -2,6 +2,10 @@
 
 InternTrack desktop releases are built from immutable tags and published as draft GitHub Releases. Pull-request installers remain intentionally unsigned test artifacts; the release workflow refuses to publish when signing material is missing.
 
+## Public Windows beta
+
+Run **Publish Windows Beta** on `main` with the installer artifact ID from a successful **Windows Desktop** run. The workflow checks the candidate version, build inputs, and archive digest before publishing an unsigned GitHub pre-release with a `v<version>-rc.<number>` tag. Use the [Releases page](https://github.com/jhyan-beep/interntrack/releases) to share the resulting ZIP. For stable releases, use the signed workflow below.
+
 ## One-time setup
 
 Acquire a Windows code-signing certificate from a trusted certificate authority. Store its exported PFX and password outside the repository. Generate a separate Tauri updater keypair and keep durable offline copies of both private credentials.
