@@ -3,7 +3,7 @@
   const invoke = window.__TAURI__?.core?.invoke;
   let finished = false;
 
-  function fail(code, message, controls = true) {
+  function fail(code, message, { controls = true, version = "Unknown" } = {}) {
     finished = true;
     byId("startup-title").textContent = "Your workspace could not open";
     byId("loader").hidden = true;
@@ -12,7 +12,15 @@
     byId("error-code").hidden = false;
     byId("details").hidden = false;
     byId("actions").hidden = !controls;
-    if (controls) byId("retry").focus();
+    if (controls) {
+      byId("support-report").value = [
+        "InternTrack startup report",
+        "Version: " + version,
+        "Error code: " + code
+      ].join("\n");
+      byId("startup-support").hidden = false;
+      byId("retry").focus();
+    }
   }
 
   async function command(name) {
@@ -31,7 +39,7 @@
     try {
       const status = await command("desktop_startup_status");
       if (status.phase === "failed") {
-        fail(status.code || "startup-failed", status.message);
+        fail(status.code || "startup-failed", status.message, { version: status.app_version });
       } else if (status.phase === "ready") {
         byId("message").textContent = "Your workspace is ready. Opening the tracker…";
       }
@@ -64,8 +72,21 @@
     }
   });
 
+  byId("copy-support").addEventListener("click", async () => {
+    const report = byId("support-report");
+    const status = byId("copy-status");
+    try {
+      await navigator.clipboard.writeText(report.value);
+      status.textContent = "Startup report copied.";
+    } catch {
+      report.focus();
+      report.select();
+      status.textContent = "Press Ctrl+C to copy the selected text.";
+    }
+  });
+
   if (typeof invoke !== "function") {
-    fail("desktop-app-required", "Open InternTrack from the installed desktop app to access your local workspace.", false);
+    fail("desktop-app-required", "Open InternTrack from the installed desktop app to access your local workspace.", { controls: false });
   } else {
     void refresh();
   }

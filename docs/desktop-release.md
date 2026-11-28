@@ -43,5 +43,5 @@ The application does not check for remote updates yet. Signed updater artifacts 
 
 ## Current candidate
 
-The current candidate is `0.2.0-rc.4`. See [release-candidate.md](release-candidate.md) for integration decisions, automated packaging checks, candidate download instructions, and the pending manual release gates.
+The current candidate is `0.2.0-rc.5`. See [release-candidate.md](release-candidate.md) for integration decisions, automated packaging checks, candidate download instructions, and the pending manual release gates.
 

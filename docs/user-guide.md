@@ -48,3 +48,5 @@ Gmail and Outlook connections are optional and require the configured tester OAu
 
 Open **Account settings → About & support**, note the version, and optionally download diagnostics. Use **Report an issue** to describe the steps, expected result, and actual result. Review screenshots and attachments for private information before sharing them.
 
+If the desktop app shows a startup error, open **Support details** and select **Copy startup report**. The report contains only the app version and error code. Paste it into **Diagnostics** in the [GitHub bug report form](https://github.com/jhyan-beep/interntrack/issues/new?template=bug_report.yml). If the version shows **Unknown**, check the installer filename.
+

@@ -147,7 +147,7 @@ def desktop_session(launcher: Path, edge_driver: Path, output: Path, name: str, 
         service.stop()
 
 
-def wait_for_error(driver, code: str) -> None:
+def wait_for_error(driver, code: str, version: str) -> None:
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support import expected_conditions as conditions
     from selenium.webdriver.support.ui import WebDriverWait
@@ -155,6 +155,18 @@ def wait_for_error(driver, code: str) -> None:
     WebDriverWait(driver, 30).until(conditions.text_to_be_present_in_element((By.ID, "error-code"), code))
     require(driver.find_element(By.ID, "retry").is_displayed(), "Retry is not visible")
     require(driver.find_element(By.ID, "quit").is_enabled(), "Quit is not available")
+    driver.find_element(By.CSS_SELECTOR, "#startup-support summary").click()
+    report = driver.find_element(By.ID, "support-report")
+    expected = f"InternTrack startup report\nVersion: {version}\nError code: {code}"
+    require(report.is_displayed() and report.get_property("readOnly"), "The startup report is not visible and read-only")
+    require(report.get_property("value") == expected, f"The startup report did not match the {code} error and version")
+    driver.find_element(By.ID, "copy-support").click()
+    feedback = WebDriverWait(driver, 10).until(lambda page: page.find_element(By.ID, "copy-status").text)
+    require(feedback in {"Startup report copied.", "Press Ctrl+C to copy the selected text."}, "Copy did not provide usable feedback")
+    if feedback.startswith("Press Ctrl+C"):
+        require(report.get_property("selectionStart") == 0 and report.get_property("selectionEnd") == len(expected),
+                "Manual copy did not select the whole report")
+    print(f"PASS: startup support report for {code} shows the installed version and copy feedback")
 
 
 def ready_runtime(client: Client, version: str, previous_instance=None):
@@ -252,7 +264,7 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
         listener.bind(("127.0.0.1", 8765))
         listener.listen()
         with desktop_session(launcher, edge_driver, output, "occupied-port") as driver:
-            wait_for_error(driver, "port-unavailable")
+            wait_for_error(driver, "port-unavailable", version)
             startup_url = driver.current_url
             app = eventually(lambda: installed_processes(launcher), "Installed shell did not start")[0]
             require(not api_children(app, sidecar), "A sidecar was launched despite the occupied port")
@@ -323,7 +335,7 @@ def smoke(launcher: Path, edge_driver: Path, version: str, output: Path) -> None
                      if connection.status == psutil.CONN_LISTEN and connection.laddr.port == 8765]
         require(len(listeners) == 1 and listeners[0].pid in owned_ids, "API listener is outside the owned process tree")
         psutil.Process(listeners[0].pid).kill()
-        wait_for_error(driver, "service-stopped")
+        wait_for_error(driver, "service-stopped", version)
         require(driver.save_screenshot(str(output / "service-stopped.png")), "Could not capture the stopped-service page")
         try:
             driver.find_element(By.ID, "retry").click()
