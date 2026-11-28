@@ -61,7 +61,7 @@ The Windows jobs currently use the hosted Windows Server 2022 image because the 
 
 Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.4**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
 
-Current builds include **START-HERE.txt**, **TESTER-GUIDE.md**, and **SHA256SUMS.txt** next to the installer. Extract the ZIP and follow **START-HERE.txt** to check the installer's SHA-256 hash and find the originating GitHub run. Use that run as the source for the files you share with testers.
+Current builds include **START-HERE.txt**, **TESTER-GUIDE.md**, **SHA256SUMS.txt**, and **LICENSE.txt** next to the installer. Extract the ZIP and follow **START-HERE.txt** to check the installer's SHA-256 hash and find the originating GitHub run. Use that run as the source for the files you share with testers.
 
 The signed release workflow remains gated on the signing credentials described in [desktop-release.md](desktop-release.md). Do not push a release tag merely to obtain an unsigned download.
 

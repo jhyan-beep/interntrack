@@ -16,11 +16,12 @@ if (Test-Path -LiteralPath $OutputDirectory) {
     throw "Choose a new output directory so that files from an older build cannot be included."
 }
 
-$guide = Join-Path $PSScriptRoot "../../docs/user-guide.md"
+$repoRoot = Join-Path $PSScriptRoot "../.."
 $package = New-Item -ItemType Directory -Path $OutputDirectory
 $stagedInstaller = Join-Path $package.FullName $expectedName
 Copy-Item -LiteralPath $installer.FullName -Destination $stagedInstaller
-Copy-Item -LiteralPath $guide -Destination (Join-Path $package.FullName "TESTER-GUIDE.md")
+Copy-Item -LiteralPath (Join-Path $repoRoot "docs/user-guide.md") -Destination (Join-Path $package.FullName "TESTER-GUIDE.md")
+Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination (Join-Path $package.FullName "LICENSE.txt")
 
 $digest = (Get-FileHash -LiteralPath $stagedInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath (Join-Path $package.FullName "SHA256SUMS.txt") -Value "$digest  $expectedName" -Encoding ascii
