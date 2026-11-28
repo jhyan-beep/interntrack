@@ -92,10 +92,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload Windows installer
+      - name: Prepare beta installer package
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis" -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer." }
+          $sourceCommit = git rev-parse HEAD
+          $buildUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_C:/Users/JokerAlan/Documents/Codex/2026-09-24/referenced-chatgpt-conversation-this-is-an/work/interntrack-releaseSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          ./desktop/scripts/prepare_candidate.ps1 -InstallerPath $installers[0].FullName -OutputDirectory (Join-Path $env:RUNNER_TEMP "interntrack-beta") -Version "${{ steps.version.outputs.version }}" -SourceCommit $sourceCommit -BuildUrl $buildUrl
+
+      - name: Upload Windows beta installer package
         uses: actions/upload-artifact@v4
         with:
           name: InternTrack-Windows-x64-${{ steps.version.outputs.version }}
-          path: desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          path: ${{ runner.temp }}/interntrack-beta/*
           if-no-files-found: error
 

@@ -53,13 +53,15 @@ The installed app test also signs in and uses **Send test notification**. It che
 
 The separate [Windows Desktop Upgrade workflow](../.github/workflows/desktop-upgrade.yml) runs two real NSIS installers on a hosted Windows machine. It creates two local accounts in the previous version, upgrades the same installation, opens the new desktop window, and checks that both sessions, isolated application records, and reminder preferences survive. It also edits a preserved record and verifies that the upgraded application uninstalls. The browser screenshots and driver logs are available in the upgrade run.
 
-To repeat the check, run **Windows Desktop Upgrade** with the artifact IDs of two unexpired installers from successful **Windows Desktop** runs in this repository. Use the numeric ID at the end of each artifact link. Tests of changes to the upgrade workflow or harness use the recorded rc.2 and rc.3 artifacts. If they expire, refresh the defaults with a verified pair. Graphical upgrades and tray behavior on a consumer Windows machine remain part of manual acceptance.
+To repeat the check, run **Windows Desktop Upgrade** with the artifact IDs of two unexpired installers from successful **Windows Desktop** runs in this repository. Use the numeric ID at the end of each artifact link. Pull requests that change the upgrade workflow or harness use the recorded rc.3 and rc.4 artifacts. If they expire, refresh the defaults with a verified pair. Graphical upgrades and tray behavior on a consumer Windows machine remain part of manual acceptance.
 
 The Windows jobs currently use the hosted Windows Server 2022 image because the newer Server 2025 WebView2 automation session can fail before tests connect ([upstream runner report](https://github.com/actions/runner-images/issues/14738)). Driver setup detects the actual installed WebView2 version and reuses a matching driver, or downloads that version from Microsoft's WebDriver distribution. It does not downgrade or bundle a runtime in the application. A passing check on this runner does not complete acceptance on current consumer Windows/WebView2 releases.
 
 ## Candidate download
 
 Open the successful **Windows Desktop** check for the current candidate PR (or a manual run at its merged commit), then download **InternTrack-Windows-x64-0.2.0-rc.4**. Confirm that the run uses the intended candidate commit. The artifact contains an unsigned installer intended for controlled testing. Do not present it as a signed public stable release.
+
+Current builds include **START-HERE.txt**, **TESTER-GUIDE.md**, and **SHA256SUMS.txt** next to the installer. Extract the ZIP and follow **START-HERE.txt** to check the installer's SHA-256 hash and find the originating GitHub run. Use that run as the source for the files you share with testers.
 
 The signed release workflow remains gated on the signing credentials described in [desktop-release.md](desktop-release.md). Do not push a release tag merely to obtain an unsigned download.
 
